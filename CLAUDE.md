@@ -1,15 +1,15 @@
 # EventBuddy - Claude Code Project Context
 
 ## Project Overview
-EventBuddy is a microservices-based event management application designed for deployment on Amazon EKS. This is Phase 1 - a production-ready foundation with a simple API service.
+EventBuddy is a microservices-based event management application designed for deployment on Google Kubernetes Engine (GKE). This is Phase 1 - a production-ready foundation with a simple API service.
 
 ## Architecture
-- **Platform**: Amazon EKS (Kubernetes)
+- **Platform**: Google Kubernetes Engine (GKE)
 - **Language**: Node.js 18+
 - **Framework**: Express.js
 - **Container**: Docker with multi-stage builds
 - **CI/CD**: GitHub Actions
-- **Registry**: GitHub Container Registry (GHCR)
+- **Registry**: Google Container Registry (GCR) or Artifact Registry
 
 ## Project Structure
 ```
@@ -33,7 +33,7 @@ eventbuddy/
 ## Development Guidelines
 
 ### Local Development
-1. **Prerequisites**: Node.js 18+, Docker, kubectl, AWS CLI
+1. **Prerequisites**: Node.js 18+, Docker, kubectl, Google Cloud CLI (gcloud)
 2. **Setup**: 
    ```bash
    npm install
@@ -98,13 +98,13 @@ kubectl logs -f deployment/eventbuddy-api -n eventbuddy
 1. **Test**: Lint, unit tests
 2. **Build**: Docker image, multi-arch
 3. **Security**: Vulnerability scanning
-4. **Deploy**: Rolling updates to EKS
+4. **Deploy**: Rolling updates to GKE
 
 ### Required Secrets
-- `AWS_ACCESS_KEY_ID`
-- `AWS_SECRET_ACCESS_KEY`
-- `AWS_REGION`
-- `EKS_CLUSTER_NAME`
+- `GCP_PROJECT_ID`
+- `GCP_SA_KEY` (Service Account JSON)
+- `GKE_CLUSTER_NAME`
+- `GKE_ZONE` or `GKE_REGION`
 
 ## Next Phase Planning
 
@@ -124,15 +124,15 @@ kubectl logs -f deployment/eventbuddy-api -n eventbuddy
 - Service mesh (Istio)
 - Monitoring (Prometheus/Grafana)
 - Distributed tracing
-- Message queues (SQS/SNS)
+- Message queues (Cloud Pub/Sub)
 
 ## Troubleshooting
 
 ### Common Issues
 1. **Container fails to start**: Check logs and resource limits
 2. **Health check fails**: Verify endpoints and network policies
-3. **Deploy fails**: Check AWS credentials and cluster access
-4. **Image pull fails**: Verify GHCR permissions
+3. **Deploy fails**: Check GCP credentials and cluster access
+4. **Image pull fails**: Verify GCR/Artifact Registry permissions
 
 ### Debugging Commands
 ```bash
