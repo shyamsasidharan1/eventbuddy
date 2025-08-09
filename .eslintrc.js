@@ -14,7 +14,6 @@ module.exports = {
   },
   rules: {
     // Add any custom rules here
-    'no-console': 'off', // Allow console.log in Node.js apps
-    'comma-dangle': 'off' // Allow trailing commas
+    'no-console': 'off' // Allow console.log in Node.js apps
   }
 }
