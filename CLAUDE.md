@@ -101,10 +101,10 @@ kubectl logs -f deployment/eventbuddy-api -n eventbuddy
 4. **Deploy**: Rolling updates to GKE
 
 ### Required Secrets
-- `GCP_PROJECT_ID`
+- `GCP_PROJECT_ID` (set to: `571710042020`)
 - `GCP_SA_KEY` (Service Account JSON)
-- `GKE_CLUSTER_NAME`
-- `GKE_ZONE` or `GKE_REGION`
+- `GKE_CLUSTER_NAME` (your cluster name)
+- `GKE_ZONE` (e.g., `us-central1-a`) or `GKE_REGION` (e.g., `us-central1`)
 
 ## Next Phase Planning
 
@@ -125,6 +125,60 @@ kubectl logs -f deployment/eventbuddy-api -n eventbuddy
 - Monitoring (Prometheus/Grafana)
 - Distributed tracing
 - Message queues (Cloud Pub/Sub)
+
+## GCP Setup Instructions
+
+### 1. Create GKE Cluster
+```bash
+# Set project
+gcloud config set project 571710042020
+
+# Enable required APIs
+gcloud services enable container.googleapis.com
+gcloud services enable containerregistry.googleapis.com
+
+# Create GKE cluster (cost-optimized)
+gcloud container clusters create eventbuddy-cluster \
+    --zone=us-central1-a \
+    --num-nodes=2 \
+    --enable-autoscaling \
+    --min-nodes=1 \
+    --max-nodes=3 \
+    --machine-type=e2-micro \
+    --disk-size=10GB \
+    --enable-autorepair \
+    --enable-autoupgrade \
+    --preemptible
+```
+
+### 2. Create Service Account for GitHub Actions
+```bash
+# Create service account
+gcloud iam service-accounts create github-actions \
+    --description="Service account for GitHub Actions" \
+    --display-name="GitHub Actions"
+
+# Add required roles
+gcloud projects add-iam-policy-binding 571710042020 \
+    --member="serviceAccount:github-actions@571710042020.iam.gserviceaccount.com" \
+    --role="roles/container.developer"
+
+gcloud projects add-iam-policy-binding 571710042020 \
+    --member="serviceAccount:github-actions@571710042020.iam.gserviceaccount.com" \
+    --role="roles/storage.admin"
+
+# Create and download key
+gcloud iam service-accounts keys create ~/github-actions-key.json \
+    --iam-account=github-actions@571710042020.iam.gserviceaccount.com
+```
+
+### 3. Configure GitHub Secrets
+Add these secrets to your GitHub repository (Settings → Secrets and variables → Actions):
+
+- **GCP_PROJECT_ID**: `571710042020`
+- **GCP_SA_KEY**: Contents of `~/github-actions-key.json` file
+- **GKE_CLUSTER_NAME**: `eventbuddy-cluster`
+- **GKE_ZONE**: `us-central1-a`
 
 ## Troubleshooting
 
