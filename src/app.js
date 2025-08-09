@@ -1,11 +1,11 @@
-const express = require('express');
-const helmet = require('helmet');
-const cors = require('cors');
-const winston = require('winston');
-require('dotenv').config();
+const express = require('express')
+const helmet = require('helmet')
+const cors = require('cors')
+const winston = require('winston')
+require('dotenv').config()
 
-const app = express();
-const PORT = process.env.PORT || 3000;
+const app = express()
+const PORT = process.env.PORT || 3000
 
 const logger = winston.createLogger({
   level: 'info',
@@ -25,16 +25,16 @@ const logger = winston.createLogger({
       )
     })
   ]
-});
+})
 
-app.use(helmet());
-app.use(cors());
-app.use(express.json());
+app.use(helmet())
+app.use(cors())
+app.use(express.json())
 
 app.use((req, res, next) => {
-  logger.info(`${req.method} ${req.path} - ${req.ip}`);
-  next();
-});
+  logger.info(`${req.method} ${req.path} - ${req.ip}`)
+  next()
+})
 
 app.get('/', (req, res) => {
   res.json({
@@ -43,8 +43,8 @@ app.get('/', (req, res) => {
     service: 'eventbuddy-api',
     environment: process.env.NODE_ENV || 'development',
     timestamp: new Date().toISOString()
-  });
-});
+  })
+})
 
 app.get('/health', (req, res) => {
   const healthCheck = {
@@ -54,48 +54,48 @@ app.get('/health', (req, res) => {
     service: 'eventbuddy-api',
     version: '1.0.0',
     environment: process.env.NODE_ENV || 'development'
-  };
-  
-  res.status(200).json(healthCheck);
-});
+  }
+
+  res.status(200).json(healthCheck)
+})
 
 app.get('/ready', (req, res) => {
   res.status(200).json({
     status: 'ready',
     timestamp: new Date().toISOString()
-  });
-});
+  })
+})
 
 app.use('*', (req, res) => {
   res.status(404).json({
     error: 'Not Found',
     message: 'The requested resource was not found',
     path: req.originalUrl
-  });
-});
+  })
+})
 
 app.use((err, req, res) => {
-  logger.error(err.stack);
+  logger.error(err.stack)
   res.status(500).json({
     error: 'Internal Server Error',
     message: 'Something went wrong!'
-  });
-});
+  })
+})
 
 const server = app.listen(PORT, () => {
-  logger.info(`EventBuddy API server is running on port ${PORT}`);
-  logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
-});
+  logger.info(`EventBuddy API server is running on port ${PORT}`)
+  logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`)
+})
 
 const gracefulShutdown = (signal) => {
-  logger.info(`Received ${signal}. Starting graceful shutdown...`);
+  logger.info(`Received ${signal}. Starting graceful shutdown...`)
   server.close(() => {
-    logger.info('Process terminated');
-    process.exit(0);
-  });
-};
+    logger.info('Process terminated')
+    process.exit(0)
+  })
+}
 
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'))
+process.on('SIGINT', () => gracefulShutdown('SIGINT'))
 
-module.exports = app;
+module.exports = app

@@ -14,6 +14,7 @@ module.exports = {
   },
   rules: {
     // Add any custom rules here
+    'semi': ['error', 'never'], // Explicitly require no semicolons
     'no-console': 'off' // Allow console.log in Node.js apps
   }
 }
