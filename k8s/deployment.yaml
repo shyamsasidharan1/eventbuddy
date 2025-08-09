@@ -20,7 +20,7 @@ spec:
     spec:
       containers:
       - name: eventbuddy-api
-        image: eventbuddy:latest
+        image: us-central1-docker.pkg.dev/hypnotic-surfer-468513-a0/eventbuddy-repo/eventbuddy:latest
         ports:
         - containerPort: 3000
           name: http
@@ -42,11 +42,11 @@ spec:
               key: LOG_LEVEL
         resources:
           requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
             memory: "128Mi"
             cpu: "100m"
-          limits:
-            memory: "256Mi"
-            cpu: "200m"
         livenessProbe:
           httpGet:
             path: /health
