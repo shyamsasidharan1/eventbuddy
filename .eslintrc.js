@@ -1,0 +1,20 @@
+module.exports = {
+  env: {
+    browser: true,
+    es2021: true,
+    node: true,
+    jest: true
+  },
+  extends: [
+    'standard'
+  ],
+  parserOptions: {
+    ecmaVersion: 'latest',
+    sourceType: 'module'
+  },
+  rules: {
+    // Add any custom rules here
+    'no-console': 'off', // Allow console.log in Node.js apps
+    'comma-dangle': 'off' // Allow trailing commas
+  }
+}
