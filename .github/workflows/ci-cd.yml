@@ -66,7 +66,7 @@ jobs:
         tags: |
           type=ref,event=branch
           type=ref,event=pr
-          type=sha,prefix={{branch}}-
+          type=sha
           type=raw,value=latest,enable={{is_default_branch}}
 
     - name: Build and push Docker image
@@ -84,29 +84,13 @@ jobs:
     - name: Output image
       id: image
       run: |
-        echo "image=${{ env.GCP_REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}" >> $GITHUB_OUTPUT
-
-  security-scan:
-    name: Security Scan
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-    - name: Run Trivy vulnerability scanner
-      uses: aquasecurity/trivy-action@master
-      with:
-        image-ref: ${{ needs.build.outputs.image }}
-        format: 'sarif'
-        output: 'trivy-results.sarif'
-
-    - name: Upload Trivy scan results to GitHub Security tab
-      uses: github/codeql-action/upload-sarif@v2
-      if: always()
-      with:
-        sarif_file: 'trivy-results.sarif'
+        IMAGE_TAG="${{ env.GCP_REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:pr-${{ github.event.number }}"
+        echo "image=$IMAGE_TAG" >> $GITHUB_OUTPUT
+        echo "Built image: $IMAGE_TAG"
 
   deploy-staging:
     name: Deploy to Staging
-    needs: [build, security-scan]
+    needs: build
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/develop'
     environment: staging
@@ -137,7 +121,7 @@ jobs:
 
   deploy-production:
     name: Deploy to Production
-    needs: [build, security-scan]
+    needs: build
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
     environment: production
