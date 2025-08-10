@@ -84,7 +84,9 @@ jobs:
     - name: Output image
       id: image
       run: |
-        echo "image=${{ fromJSON(steps.meta.outputs.json).tags[0] }}" >> $GITHUB_OUTPUT
+        IMAGE_TAG="${{ env.GCP_REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:pr-${{ github.event.number }}"
+        echo "image=$IMAGE_TAG" >> $GITHUB_OUTPUT
+        echo "Built image: $IMAGE_TAG"
 
   security-scan:
     name: Security Scan
