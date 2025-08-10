@@ -93,6 +93,12 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+    - name: Debug build outputs
+      run: |
+        echo "Build outputs:"
+        echo "image: ${{ needs.build.outputs.image }}"
+        echo "digest: ${{ needs.build.outputs.digest }}"
+        
     - name: Run Trivy vulnerability scanner
       uses: aquasecurity/trivy-action@0.28.0
       with:
