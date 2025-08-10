@@ -88,6 +88,19 @@ jobs:
         echo "image=$IMAGE_TAG" >> $GITHUB_OUTPUT
         echo "Built image: $IMAGE_TAG"
 
+  security-scan:
+    name: Security Scan
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: ${{ env.GCP_REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:latest
+        format: 'table'
+        exit-code: '0'
+      continue-on-error: true
+
   deploy-staging:
     name: Deploy to Staging
     needs: build
