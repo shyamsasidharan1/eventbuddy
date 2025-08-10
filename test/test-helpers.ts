@@ -58,7 +58,7 @@ export class TestHelpers {
     const user = await this.prisma.userAccount.create({
       data: {
         email,
-        passwordHash: '$2b$12$LQv3c1yqBwEHxv0fxC10.O4xTXAGQWEBRFhZYc.4QyVPHJvd5wHJW', // 'testpassword123'
+        passwordHash: '$2b$12$TAQ7HJuRE/TwYS6yRvkUueBr8Ggrsy83fMPpDX3s96Ui9fn52hW2m', // 'testpassword123'
         role,
         orgId,
         isActive: true,
