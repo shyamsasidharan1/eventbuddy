@@ -82,20 +82,23 @@ app.use((err, req, res) => {
   })
 })
 
-const server = app.listen(PORT, () => {
-  logger.info(`EventBuddy API server is running on port ${PORT}`)
-  logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`)
-})
-
-const gracefulShutdown = (signal) => {
-  logger.info(`Received ${signal}. Starting graceful shutdown...`)
-  server.close(() => {
-    logger.info('Process terminated')
-    process.exit(0)
+// Only start server if this file is run directly (not imported for testing)
+if (require.main === module) {
+  const server = app.listen(PORT, () => {
+    logger.info(`EventBuddy API server is running on port ${PORT}`)
+    logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`)
   })
-}
 
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'))
-process.on('SIGINT', () => gracefulShutdown('SIGINT'))
+  const gracefulShutdown = (signal) => {
+    logger.info(`Received ${signal}. Starting graceful shutdown...`)
+    server.close(() => {
+      logger.info('Process terminated')
+      process.exit(0)
+    })
+  }
+
+  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'))
+  process.on('SIGINT', () => gracefulShutdown('SIGINT'))
+}
 
 module.exports = app
