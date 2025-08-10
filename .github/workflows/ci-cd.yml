@@ -155,10 +155,17 @@ jobs:
 
     - name: Deploy to production
       run: |
-        echo "Deploying image: ${{ needs.build.outputs.image }}"
+        # For main branch, use latest tag
+        PROD_IMAGE="${{ env.GCP_REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:latest"
+        echo "Deploying production image: $PROD_IMAGE"
+        
         # Create a temporary deployment file with the correct image
         cp k8s/deployment.yaml k8s/deployment-temp.yaml
-        sed -i 's|us-central1-docker.pkg.dev/hypnotic-surfer-468513-a0/eventbuddy-repo/eventbuddy:latest|${{ needs.build.outputs.image }}|g' k8s/deployment-temp.yaml
+        sed -i "s|us-central1-docker.pkg.dev/hypnotic-surfer-468513-a0/eventbuddy-repo/eventbuddy:latest|$PROD_IMAGE|g" k8s/deployment-temp.yaml
+        
+        # Show what we're deploying
+        echo "Image in deployment file:"
+        grep "image:" k8s/deployment-temp.yaml
         
         kubectl apply -f k8s/namespace.yaml
         kubectl apply -f k8s/configmap.yaml
