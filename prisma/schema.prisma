@@ -44,6 +44,7 @@ enum AuditAction {
 model Organization {
   id         BigInt        @id @default(autoincrement())
   name       String
+  webUrl     String?       @unique @db.VarChar(255) // Optional but unique when present
   settings   Json          @default("{}")
   isActive   Boolean       @default(true)
   createdAt  DateTime      @default(now())
