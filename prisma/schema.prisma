@@ -27,6 +27,16 @@ enum RegStatus {
   WAITLISTED
 }
 
+enum MembershipCategory {
+  REGULAR
+  PREMIUM
+  LIFE
+  EXECUTIVE_BOARD
+  HONORARY
+  STUDENT
+  SENIOR
+}
+
 enum AuditAction {
   CREATE
   UPDATE
@@ -42,7 +52,7 @@ enum AuditAction {
 // Core Models
 //
 model Organization {
-  id         BigInt        @id @default(autoincrement())
+  id         Int           @id @default(autoincrement())
   name       String
   webUrl     String?       @unique @db.VarChar(255) // Optional but unique when present
   settings   Json          @default("{}")
@@ -62,8 +72,8 @@ model Organization {
 }
 
 model UserAccount {
-  id                      BigInt      @id @default(autoincrement())
-  orgId                   BigInt
+  id                      Int         @id @default(autoincrement())
+  orgId                   Int
   email                   String      @db.Citext
   passwordHash            String?     // null if using Identity Platform
   role                    UserRole
@@ -91,9 +101,9 @@ model UserAccount {
 }
 
 model MemberProfile {
-  id            BigInt   @id @default(autoincrement())
-  orgId         BigInt
-  userId        BigInt   @unique
+  id            Int      @id @default(autoincrement())
+  orgId         Int
+  userId        Int      @unique
   firstName     String
   lastName      String
   phone         String?
@@ -104,6 +114,16 @@ model MemberProfile {
   postalCode    String?
   country       String?  @default("US")
   dateOfBirth   DateTime? @db.Date
+  
+  // Membership details
+  membershipCategory    MembershipCategory @default(REGULAR)
+  membershipStartDate   DateTime           @default(now())
+  membershipEndDate     DateTime?          // null for lifetime memberships
+  membershipFee         Decimal            @default(0.00) @db.Decimal(10,2)
+  lastPaymentDate       DateTime?
+  nextPaymentDue        DateTime?
+  membershipNotes       String?            // Special notes about membership
+  
   emergencyContact Json   @default("{}")  // {name, phone, relationship}
   metadata      Json     @default("{}")   // Custom fields per org
   isActive      Boolean  @default(true)
@@ -121,13 +141,15 @@ model MemberProfile {
 
   @@index([orgId, lastName, firstName], map: "member_org_name_idx")
   @@index([orgId, isActive], map: "member_org_active_idx")
+  @@index([orgId, membershipCategory], map: "member_org_category_idx")
+  @@index([orgId, nextPaymentDue], map: "member_org_payment_due_idx")
   @@map("member_profile")
 }
 
 model FamilyMember {
-  id            BigInt    @id @default(autoincrement())
-  orgId         BigInt
-  memberId      BigInt
+  id            Int       @id @default(autoincrement())
+  orgId         Int
+  memberId      Int
   firstName     String
   lastName      String
   relationship  String?   // spouse, child, parent, etc.
@@ -153,8 +175,8 @@ model FamilyMember {
 }
 
 model Event {
-  id                BigInt    @id @default(autoincrement())
-  orgId             BigInt
+  id                Int       @id @default(autoincrement())
+  orgId             Int
   title             String
   description       String?
   capacity          Int       // Hard capacity limit
@@ -180,17 +202,17 @@ model Event {
 }
 
 model Registration {
-  id              BigInt     @id @default(autoincrement())
-  orgId           BigInt
-  eventId         BigInt
-  memberId        BigInt?    // Either member OR family member (not both)
-  familyMemberId  BigInt?
+  id              Int        @id @default(autoincrement())
+  orgId           Int
+  eventId         Int
+  memberId        Int?       // Either member OR family member (not both)
+  familyMemberId  Int?
   status          RegStatus  @default(PENDING)
   
   // Check-in tracking
   checkedIn       Boolean    @default(false)
   checkedInAt     DateTime?
-  checkedInById   BigInt?    // Staff member who performed check-in
+  checkedInById   Int?       // Staff member who performed check-in
   
   // Registration metadata
   customData      Json       @default("{}")  // Responses to event custom fields
@@ -219,12 +241,12 @@ model Registration {
 }
 
 model AuditLog {
-  id           BigInt       @id @default(autoincrement())
-  orgId        BigInt
-  actorUserId  BigInt?      // User who performed the action
+  id           Int          @id @default(autoincrement())
+  orgId        Int
+  actorUserId  Int?         // User who performed the action
   action       AuditAction
   targetType   String?      // "Event", "Member", "Registration", etc.
-  targetId     BigInt?      // ID of the target entity
+  targetId     Int?         // ID of the target entity
   payload      Json         @default("{}")  // Action details
   ipAddress    String?      @db.Inet
   userAgent    String?      // Browser/device info
