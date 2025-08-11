@@ -216,7 +216,8 @@ jobs:
               containers:
               - name: migrate
                 image: $MIGRATION_IMAGE
-                command: ["npx", "prisma", "db", "push"]
+                command: ["sh", "-c"]
+                args: ["npx prisma generate && npx prisma db push --force-reset"]
                 envFrom:
                 - configMapRef:
                     name: eventbuddy-staging-config
@@ -228,7 +229,19 @@ jobs:
                       key: database-url
         EOF
         kubectl apply -f k8s/migration-job.yaml
-        kubectl wait --for=condition=complete job/$MIGRATION_JOB_NAME --timeout=300s -n eventbuddy-staging
+        
+        # Wait for migration job to complete with extended timeout
+        echo "Waiting for migration job to complete..."
+        kubectl wait --for=condition=complete job/$MIGRATION_JOB_NAME --timeout=600s -n eventbuddy-staging
+        
+        # Check if migration was successful
+        if kubectl get job $MIGRATION_JOB_NAME -n eventbuddy-staging -o jsonpath='{.status.conditions[0].type}' | grep -q Complete; then
+          echo "Migration completed successfully"
+        else
+          echo "Migration failed, checking logs..."
+          kubectl logs -l job-name=$MIGRATION_JOB_NAME -n eventbuddy-staging --tail=100
+          exit 1
+        fi
 
     - name: Deploy to staging
       run: |
