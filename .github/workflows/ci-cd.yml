@@ -259,7 +259,8 @@ jobs:
         # Create namespace
         kubectl create namespace eventbuddy-staging --dry-run=client -o yaml | kubectl apply -f -
         
-        # Deploy databases first
+        # Deploy database initialization scripts and databases
+        kubectl apply -f k8s/postgres-init-configmap.yaml
         kubectl apply -f k8s/postgres-staging.yaml
         kubectl apply -f k8s/redis-staging.yaml
         
