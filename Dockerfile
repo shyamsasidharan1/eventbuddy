@@ -1,8 +1,12 @@
 # Multi-stage build for production-ready NestJS application
 FROM node:20-alpine AS builder
 
-# Install build dependencies including OpenSSL compatibility
-RUN apk add --no-cache libc6-compat openssl-dev
+# Install build dependencies including OpenSSL compatibility for Prisma
+RUN apk add --no-cache \
+    libc6-compat \
+    openssl \
+    openssl-dev \
+    ca-certificates
 
 WORKDIR /app
 
@@ -28,8 +32,12 @@ RUN npm ci --only=production && npm cache clean --force
 # Production image
 FROM node:20-alpine AS runner
 
-# Install OpenSSL for Prisma compatibility
-RUN apk add --no-cache openssl openssl-dev
+# Install runtime dependencies for Prisma compatibility
+RUN apk add --no-cache \
+    openssl \
+    openssl-dev \
+    ca-certificates \
+    dumb-init
 
 WORKDIR /app
 
@@ -57,5 +65,5 @@ EXPOSE 3001
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
     CMD wget --no-verbose --tries=1 --spider http://localhost:3001/health || exit 1
 
-# Start the application
-CMD ["node", "dist/main.js"]
+# Start the application with proper signal handling
+CMD ["dumb-init", "node", "dist/main.js"]
