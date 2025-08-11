@@ -184,13 +184,14 @@ jobs:
 
     - name: Run database migrations
       run: |
-        # Create a temporary job for migrations
+        # Create a temporary job for migrations with unique timestamp
+        MIGRATION_JOB_NAME="eventbuddy-migration-$(date +%s)"
         cat <<EOF > k8s/migration-job.yaml
         apiVersion: batch/v1
         kind: Job
         metadata:
-          name: eventbuddy-migration-\$(date +%s)
-          namespace: eventbuddy
+          name: $MIGRATION_JOB_NAME
+          namespace: eventbuddy-staging
         spec:
           template:
             spec:
@@ -198,19 +199,19 @@ jobs:
               containers:
               - name: migrate
                 image: ${{ needs.build.outputs.image }}
-                command: ["npx", "prisma", "migrate", "deploy"]
+                command: ["npx", "prisma", "db", "push"]
                 envFrom:
                 - configMapRef:
-                    name: eventbuddy-config
+                    name: eventbuddy-staging-config
                 env:
                 - name: DATABASE_URL
                   valueFrom:
                     secretKeyRef:
-                      name: eventbuddy-secrets
+                      name: eventbuddy-staging-secrets
                       key: database-url
         EOF
         kubectl apply -f k8s/migration-job.yaml
-        kubectl wait --for=condition=complete job -l job-name=eventbuddy-migration --timeout=300s -n eventbuddy
+        kubectl wait --for=condition=complete job/$MIGRATION_JOB_NAME --timeout=300s -n eventbuddy-staging
 
     - name: Deploy to staging
       run: |
@@ -266,12 +267,13 @@ jobs:
     - name: Run production database migrations
       run: |
         PROD_IMAGE="${{ env.GCP_REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:latest"
+        MIGRATION_JOB_NAME="eventbuddy-migration-$(date +%s)"
         # Create a temporary job for production migrations
         cat <<EOF > k8s/migration-job.yaml
         apiVersion: batch/v1
         kind: Job
         metadata:
-          name: eventbuddy-migration-\$(date +%s)
+          name: $MIGRATION_JOB_NAME
           namespace: eventbuddy
         spec:
           template:
@@ -279,7 +281,7 @@ jobs:
               restartPolicy: Never
               containers:
               - name: migrate
-                image: \$PROD_IMAGE
+                image: $PROD_IMAGE
                 command: ["npx", "prisma", "migrate", "deploy"]
                 envFrom:
                 - configMapRef:
@@ -292,7 +294,7 @@ jobs:
                       key: database-url
         EOF
         kubectl apply -f k8s/migration-job.yaml
-        kubectl wait --for=condition=complete job -l job-name=eventbuddy-migration --timeout=300s -n eventbuddy
+        kubectl wait --for=condition=complete job/$MIGRATION_JOB_NAME --timeout=300s -n eventbuddy
 
     - name: Deploy to production
       run: |
