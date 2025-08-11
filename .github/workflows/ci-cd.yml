@@ -131,7 +131,8 @@ jobs:
     - name: Output image
       id: image
       run: |
-        IMAGE_TAG="${{ env.GCP_REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:pr-${{ github.event.number }}"
+        # Use the first tag from the metadata action
+        IMAGE_TAG=$(echo "${{ steps.meta.outputs.tags }}" | head -n1)
         echo "image=$IMAGE_TAG" >> $GITHUB_OUTPUT
         echo "Built image: $IMAGE_TAG"
 
