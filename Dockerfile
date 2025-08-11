@@ -1,12 +1,11 @@
 # Multi-stage build for production-ready NestJS application
-FROM node:20-alpine AS builder
+FROM node:20-slim AS builder
 
-# Install build dependencies including OpenSSL compatibility for Prisma
-RUN apk add --no-cache \
-    libc6-compat \
+# Install build dependencies including OpenSSL for Prisma
+RUN apt-get update -y && apt-get install -y \
     openssl \
-    openssl-dev \
-    ca-certificates
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -30,14 +29,14 @@ RUN npm run build
 RUN npm ci --only=production && npm cache clean --force
 
 # Production image
-FROM node:20-alpine AS runner
+FROM node:20-slim AS runner
 
 # Install runtime dependencies for Prisma compatibility
-RUN apk add --no-cache \
+RUN apt-get update -y && apt-get install -y \
     openssl \
-    openssl-dev \
     ca-certificates \
-    dumb-init
+    dumb-init \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
