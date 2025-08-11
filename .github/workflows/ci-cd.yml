@@ -187,6 +187,22 @@ jobs:
       run: |
         gcloud container clusters get-credentials ${{ secrets.GKE_CLUSTER_NAME }} --zone ${{ secrets.GKE_ZONE }} --project ${{ secrets.GCP_PROJECT_ID }}
 
+    - name: Deploy database infrastructure
+      run: |
+        # Create namespace first
+        kubectl create namespace eventbuddy-staging --dry-run=client -o yaml | kubectl apply -f -
+        
+        # Deploy database initialization scripts and databases
+        kubectl apply -f k8s/postgres-init-configmap.yaml
+        kubectl apply -f k8s/postgres-staging.yaml
+        kubectl apply -f k8s/redis-staging.yaml
+        
+        # Wait for databases to be ready
+        kubectl wait --for=condition=available deployment/postgres-staging -n eventbuddy-staging --timeout=300s
+        kubectl wait --for=condition=available deployment/redis-staging -n eventbuddy-staging --timeout=300s
+        
+        echo "Database infrastructure deployed and ready"
+
     - name: Run database migrations
       run: |
         # Debug: Show received image reference
@@ -243,7 +259,7 @@ jobs:
           exit 1
         fi
 
-    - name: Deploy to staging
+    - name: Deploy application to staging
       run: |
         # Use the same image selection logic  
         if [ -z "${{ needs.build.outputs.image }}" ]; then
@@ -254,19 +270,7 @@ jobs:
           echo "Using build job deployment image: $DEPLOY_IMAGE"
         fi
         
-        echo "Deploying image: $DEPLOY_IMAGE"
-        
-        # Create namespace
-        kubectl create namespace eventbuddy-staging --dry-run=client -o yaml | kubectl apply -f -
-        
-        # Deploy database initialization scripts and databases
-        kubectl apply -f k8s/postgres-init-configmap.yaml
-        kubectl apply -f k8s/postgres-staging.yaml
-        kubectl apply -f k8s/redis-staging.yaml
-        
-        # Wait for databases to be ready
-        kubectl wait --for=condition=available deployment/postgres-staging -n eventbuddy-staging --timeout=300s
-        kubectl wait --for=condition=available deployment/redis-staging -n eventbuddy-staging --timeout=300s
+        echo "Deploying application image: $DEPLOY_IMAGE"
         
         # Create a temporary deployment file with the correct image
         cp k8s/deployment-staging.yaml k8s/deployment-staging-temp.yaml
