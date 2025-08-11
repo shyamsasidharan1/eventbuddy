@@ -135,10 +135,17 @@ jobs:
         echo "All tags from metadata:"
         echo "${{ steps.meta.outputs.tags }}"
         
-        # Use the first tag from the metadata action
-        IMAGE_TAG=$(echo "${{ steps.meta.outputs.tags }}" | head -n1)
-        echo "Selected image tag: $IMAGE_TAG"
-        echo "image=$IMAGE_TAG" >> $GITHUB_OUTPUT
+        # Use the SHA-tagged image (second line) to avoid caching issues
+        SHA_TAG=$(echo "${{ steps.meta.outputs.tags }}" | grep "sha-" | head -n1)
+        if [ -n "$SHA_TAG" ]; then
+          echo "Selected SHA-tagged image: $SHA_TAG"
+          echo "image=$SHA_TAG" >> $GITHUB_OUTPUT
+        else
+          # Fallback to first tag if SHA tag not found
+          IMAGE_TAG=$(echo "${{ steps.meta.outputs.tags }}" | head -n1)
+          echo "Fallback to first tag: $IMAGE_TAG"
+          echo "image=$IMAGE_TAG" >> $GITHUB_OUTPUT
+        fi
 
   security-scan:
     name: Security Scan
@@ -205,17 +212,9 @@ jobs:
 
     - name: Run database migrations
       run: |
-        # Debug: Show received image reference
-        echo "Received image from build job: ${{ needs.build.outputs.image }}"
-        
-        # Set image with fallback to develop tag
-        if [ -z "${{ needs.build.outputs.image }}" ]; then
-          MIGRATION_IMAGE="${{ env.GCP_REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:develop"
-          echo "Using fallback image: $MIGRATION_IMAGE"
-        else
-          MIGRATION_IMAGE="${{ needs.build.outputs.image }}"
-          echo "Using build job image: $MIGRATION_IMAGE"
-        fi
+        # Use SHA-tagged image from build job to avoid caching issues
+        MIGRATION_IMAGE="${{ needs.build.outputs.image }}"
+        echo "Using SHA-tagged image for migration: $MIGRATION_IMAGE"
         
         # Create a temporary job for migrations with unique timestamp
         MIGRATION_JOB_NAME="eventbuddy-migration-$(date +%s)"
@@ -261,16 +260,9 @@ jobs:
 
     - name: Deploy application to staging
       run: |
-        # Use the same image selection logic  
-        if [ -z "${{ needs.build.outputs.image }}" ]; then
-          DEPLOY_IMAGE="${{ env.GCP_REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:develop"
-          echo "Using fallback deployment image: $DEPLOY_IMAGE"
-        else
-          DEPLOY_IMAGE="${{ needs.build.outputs.image }}"
-          echo "Using build job deployment image: $DEPLOY_IMAGE"
-        fi
-        
-        echo "Deploying application image: $DEPLOY_IMAGE"
+        # Use SHA-tagged image from build job
+        DEPLOY_IMAGE="${{ needs.build.outputs.image }}"
+        echo "Deploying SHA-tagged application image: $DEPLOY_IMAGE"
         
         # Create a temporary deployment file with the correct image
         cp k8s/deployment-staging.yaml k8s/deployment-staging-temp.yaml
