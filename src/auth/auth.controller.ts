@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Get, UseGuards, Request, Put, Param } from '@nestjs/common'
+import { Controller, Post, Body, Get, UseGuards, Request, Put, Param, HttpCode } from '@nestjs/common'
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger'
 import { AuthService } from './auth.service'
 import { LoginDto } from './dto/login.dto'
@@ -16,6 +16,7 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Post('login')
+  @HttpCode(200)
   @ApiOperation({ summary: 'User login with email and password' })
   @ApiResponse({ status: 200, description: 'Login successful' })
   @ApiResponse({ status: 401, description: 'Invalid credentials' })

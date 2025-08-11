@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Param, Body, UseGuards, Request, Query } from '@nestjs/common'
+import { Controller, Get, Post, Put, Param, Body, UseGuards, Request, Query, HttpCode } from '@nestjs/common'
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam } from '@nestjs/swagger'
 import { RegistrationsService } from './registrations.service'
 import { CreateRegistrationDto } from './dto/create-registration.dto'
@@ -87,6 +87,7 @@ export class RegistrationsController {
   }
 
   @Post('events/:eventId/checkin')
+  @HttpCode(200)
   @Roles(UserRole.ORG_ADMIN, UserRole.EVENT_STAFF)
   @ApiOperation({ summary: 'Check in attendees for an event (Admin/Staff only)' })
   @ApiParam({ name: 'eventId', description: 'Event ID' })

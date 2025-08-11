@@ -93,7 +93,7 @@ describe('Reports (e2e)', () => {
       expect(response.body.summary).toHaveProperty('membershipCategoryBreakdown');
       expect(response.body.summary).toHaveProperty('paymentStatus');
 
-      expect(response.body.members).toHaveLength(2); // admin + member
+      expect(response.body.members).toHaveLength(3); // admin + member + staff
     });
 
     it('should return membership report in CSV format', async () => {

@@ -31,19 +31,33 @@ export class EventsService {
       throw new BadRequestException('Maximum capacity cannot be less than regular capacity')
     }
 
-    return this.prisma.event.create({
-      data: {
-        ...createEventDto,
-        startsAt,
-        endsAt,
-        orgId: userOrgId,
-        waitlistEnabled: createEventDto.waitlistEnabled ?? true,
-        requiresApproval: createEventDto.requiresApproval ?? false,
-        isPublic: createEventDto.isPublic ?? false,
-        customFields: createEventDto.customFields || {},
-        isActive: true,
-      },
-    })
+    try {
+      return await this.prisma.event.create({
+        data: {
+          ...createEventDto,
+          startsAt,
+          endsAt,
+          orgId: userOrgId,
+          waitlistEnabled: createEventDto.waitlistEnabled ?? true,
+          requiresApproval: createEventDto.requiresApproval ?? false,
+          isPublic: createEventDto.isPublic ?? false,
+          customFields: createEventDto.customFields || {},
+          isActive: true,
+        },
+      })
+    } catch (error) {
+      // Handle Prisma errors
+      if (error.code === 'P2002') {
+        // Unique constraint violation
+        throw new BadRequestException('Event with this title already exists')
+      }
+      if (error.code === 'P2003') {
+        // Foreign key constraint violation
+        throw new BadRequestException('Invalid organization reference')
+      }
+      // Re-throw other errors
+      throw error
+    }
   }
 
   async findAll(userOrgId: number, userRole: UserRole, includeInactive = false) {
@@ -165,27 +179,41 @@ export class EventsService {
       }
     }
 
-    return this.prisma.event.update({
-      where: {
-        id: parseInt(id),
-        orgId: userOrgId,
-      },
-      data: updateData,
-      include: {
-        registrations: {
-          select: {
-            id: true,
-            status: true,
-            checkedIn: true,
+    try {
+      return await this.prisma.event.update({
+        where: {
+          id: parseInt(id),
+          orgId: userOrgId,
+        },
+        data: updateData,
+        include: {
+          registrations: {
+            select: {
+              id: true,
+              status: true,
+              checkedIn: true,
+            },
+          },
+          _count: {
+            select: {
+              registrations: true,
+            },
           },
         },
-        _count: {
-          select: {
-            registrations: true,
-          },
-        },
-      },
-    })
+      })
+    } catch (error) {
+      // Handle Prisma errors
+      if (error.code === 'P2025') {
+        // Record not found
+        throw new NotFoundException('Event not found')
+      }
+      if (error.code === 'P2002') {
+        // Unique constraint violation
+        throw new BadRequestException('Event with this title already exists')
+      }
+      // Re-throw other errors
+      throw error
+    }
   }
 
   async deactivate(id: string, userOrgId: number, userRole: UserRole) {

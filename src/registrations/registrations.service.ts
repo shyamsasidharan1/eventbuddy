@@ -76,46 +76,64 @@ export class RegistrationsService {
       throw new BadRequestException('Event is at capacity and waitlist is full')
     }
 
-    // Create all registrations
-    const registrations = await this.prisma.$transaction(
-      createRegistrationDto.registrants.map(registrant => 
-        this.prisma.registration.create({
-          data: {
-            eventId: eventIdNum,
-            orgId: userOrgId,
-            memberId: registrant.type === RegistrantType.MEMBER ? registrant.id : null,
-            familyMemberId: registrant.type === RegistrantType.FAMILY ? registrant.id : null,
-            status,
-            customData: registrant.customData || {},
-            notes: registrant.notes || '',
-            registeredAt: new Date(),
-          },
-          include: {
-            member: {
-              select: {
-                id: true,
-                firstName: true,
-                lastName: true,
-              }
+    try {
+      // Create all registrations
+      const registrations = await this.prisma.$transaction(
+        createRegistrationDto.registrants.map(registrant => 
+          this.prisma.registration.create({
+            data: {
+              eventId: eventIdNum,
+              orgId: userOrgId,
+              memberId: registrant.type === RegistrantType.MEMBER ? registrant.id : null,
+              familyMemberId: registrant.type === RegistrantType.FAMILY ? registrant.id : null,
+              status,
+              customData: registrant.customData || {},
+              notes: registrant.notes || '',
+              registeredAt: new Date(),
             },
-            familyMember: {
-              select: {
-                id: true,
-                firstName: true,
-                lastName: true,
+            include: {
+              member: {
+                select: {
+                  id: true,
+                  firstName: true,
+                  lastName: true,
+                }
+              },
+              familyMember: {
+                select: {
+                  id: true,
+                  firstName: true,
+                  lastName: true,
+                }
               }
             }
-          }
-        })
+          })
+        )
       )
-    )
 
-    return {
-      message: `Successfully registered ${registrations.length} people for ${event.title}`,
-      registrations,
-      status,
-      eventTitle: event.title,
-      eventStartsAt: event.startsAt,
+      return {
+        message: `Successfully registered ${registrations.length} people for ${event.title}`,
+        registrations,
+        status,
+        eventTitle: event.title,
+        eventStartsAt: event.startsAt,
+      }
+    } catch (error) {
+      // Handle Prisma errors
+      if (error.code === 'P2002') {
+        // Unique constraint violation
+        throw new BadRequestException('One or more people are already registered for this event')
+      }
+      if (error.code === 'P2003') {
+        // Foreign key constraint violation
+        throw new BadRequestException('Invalid member or family member reference')
+      }
+      if (error.code === 'P2025') {
+        // Record not found
+        throw new BadRequestException('Member or family member not found')
+      }
+      // Re-throw other errors
+      throw error
     }
   }
 

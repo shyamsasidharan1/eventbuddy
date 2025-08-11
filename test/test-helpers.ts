@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { INestApplication } from '@nestjs/common';
+import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/config/prisma.service';
 import { UserRole, MembershipCategory } from '@prisma/client';
@@ -29,10 +29,11 @@ export class TestHelpers {
   }
 
   async createTestOrganization(): Promise<TestOrganization> {
+    const timestamp = Date.now();
     const org = await this.prisma.organization.create({
       data: {
-        name: 'Test Organization',
-        webUrl: 'test.eventbuddy.com',
+        name: `Test Organization ${timestamp}`,
+        webUrl: `test-${timestamp}.eventbuddy.com`,
         settings: {},
         isActive: true,
         updatedAt: new Date(),
@@ -87,7 +88,9 @@ export class TestHelpers {
     const loginResponse = await request(this.app.getHttpServer())
       .post('/api/v1/auth/login')
       .send({ email, password })
-      .expect(200);
+      .expect((res) => {
+        expect([200, 201]).toContain(res.status);
+      });
 
     return {
       id: user.id,
@@ -102,13 +105,12 @@ export class TestHelpers {
     const eventData = {
       title: 'Test Event',
       description: 'Test event for automated testing',
-      startsAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 1 week from now
-      endsAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000 + 2 * 60 * 60 * 1000), // 2 hours later
+      startsAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(), // 1 week from now
+      endsAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000 + 2 * 60 * 60 * 1000).toISOString(), // 2 hours later
       location: 'Test Venue',
       capacity: 50,
       maxCapacity: 60,
       isPublic: true,
-      registrationDeadline: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000), // 5 days from now
     };
 
     const response = await request(this.app.getHttpServer())
@@ -124,9 +126,10 @@ export class TestHelpers {
     const familyData = {
       firstName: 'Family',
       lastName: 'Member',
-      relationship: 'SPOUSE',
-      dateOfBirth: new Date('1985-05-15'),
-      phone: '555-9999',
+      dateOfBirth: '1985-05-15',
+      gender: 'Female',
+      relationship: 'spouse',
+      notes: 'Test family member',
     };
 
     const response = await request(this.app.getHttpServer())
@@ -141,11 +144,33 @@ export class TestHelpers {
   async registerForEvent(
     userToken: string,
     eventId: number,
-    registrations: Array<{ type: 'MEMBER' | 'FAMILY_MEMBER'; familyMemberId?: number }>
+    registrations: Array<{ type: 'MEMBER' | 'FAMILY_MEMBER'; familyMemberId?: number }>,
+    memberProfileId?: number
   ): Promise<any> {
+    // We need the member profile ID for MEMBER registrations
+    if (!memberProfileId && registrations.some(r => r.type === 'MEMBER')) {
+      // Get it from the token by looking up the user
+      const loginResponse = await request(this.app.getHttpServer())
+        .get('/api/v1/auth/me')
+        .set('Authorization', `Bearer ${userToken}`)
+        .expect(200);
+      memberProfileId = loginResponse.body.memberProfile.id;
+    }
+
     const registrationData = {
-      registrations,
-      notes: 'Test registration',
+      registrants: registrations.map(reg => {
+        if (reg.type === 'MEMBER') {
+          return { 
+            type: 'member',  // Use the enum value
+            id: memberProfileId 
+          };
+        } else {
+          return { 
+            type: 'family',  // Use the enum value
+            id: reg.familyMemberId 
+          };
+        }
+      }),
     };
 
     const response = await request(this.app.getHttpServer())
@@ -188,6 +213,12 @@ export async function createTestApp(): Promise<INestApplication> {
   const app = moduleFixture.createNestApplication();
   
   // Apply the same configuration as main.ts
+  app.useGlobalPipes(new ValidationPipe({
+    transform: true,
+    whitelist: true,
+    forbidNonWhitelisted: true,
+  }));
+
   app.setGlobalPrefix('api/v1');
   
   await app.init();

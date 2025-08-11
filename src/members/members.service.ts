@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common'
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common'
 import { PrismaService } from '../config/prisma.service'
 import { UpdateMemberDto } from './dto/update-member.dto'
 import { UserRole } from '@prisma/client'
@@ -82,32 +82,46 @@ export class MembersService {
       throw new ForbiddenException('Cannot update other member profiles')
     }
 
-    return this.prisma.memberProfile.update({
-      where: {
-        id: parseInt(id),
-        orgId: userOrgId,
-      },
-      data: {
-        ...updateMemberDto,
-        dateOfBirth: updateMemberDto.dateOfBirth ? new Date(updateMemberDto.dateOfBirth) : undefined,
-        updatedAt: new Date(),
-      },
-      include: {
-        user: {
-          select: {
-            id: true,
-            email: true,
-            role: true,
-            isActive: true,
-            lastLoginAt: true,
-            createdAt: true,
+    try {
+      return await this.prisma.memberProfile.update({
+        where: {
+          id: parseInt(id),
+          orgId: userOrgId,
+        },
+        data: {
+          ...updateMemberDto,
+          dateOfBirth: updateMemberDto.dateOfBirth ? new Date(updateMemberDto.dateOfBirth) : undefined,
+          updatedAt: new Date(),
+        },
+        include: {
+          user: {
+            select: {
+              id: true,
+              email: true,
+              role: true,
+              isActive: true,
+              lastLoginAt: true,
+              createdAt: true,
+            },
+          },
+          family: {
+            where: { isActive: true },
           },
         },
-        family: {
-          where: { isActive: true },
-        },
-      },
-    })
+      })
+    } catch (error) {
+      // Handle Prisma errors
+      if (error.code === 'P2025') {
+        // Record not found
+        throw new NotFoundException('Member not found')
+      }
+      if (error.code === 'P2002') {
+        // Unique constraint violation
+        throw new BadRequestException('Member with these details already exists')
+      }
+      // Re-throw other errors
+      throw error
+    }
   }
 
   async deactivate(id: string, userOrgId: number, userRole: UserRole) {

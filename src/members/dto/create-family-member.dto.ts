@@ -14,14 +14,15 @@ export class CreateFamilyMemberDto {
   @IsDateString()
   dateOfBirth: string
 
-  @ApiProperty({ example: 'Female' })
-  @IsString()
-  gender: string
-
   @ApiProperty({ example: 'spouse', required: false })
   @IsOptional()
   @IsString()
   relationship?: string
+
+  @ApiProperty({ example: 'Female', required: false })
+  @IsOptional()
+  @IsString()
+  gender?: string
 
   @ApiProperty({ example: 'Lactose intolerant', required: false })
   @IsOptional()

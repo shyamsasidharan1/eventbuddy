@@ -27,16 +27,23 @@ export class FamilyService {
     }
 
     // Members can only add family to their own profile unless admin
-    if (userRole === UserRole.MEMBER && member.userId.toString() !== userId) {
+    if (userRole === UserRole.MEMBER && member.userId.toString() !== userId.toString()) {
       throw new ForbiddenException('Cannot add family members to other profiles')
     }
 
+    const { gender, allergies, notes, ...familyData } = createFamilyMemberDto;
+    
     return this.prisma.familyMember.create({
       data: {
-        ...createFamilyMemberDto,
+        ...familyData,
         dateOfBirth: new Date(createFamilyMemberDto.dateOfBirth),
         memberId: parseInt(memberId),
         orgId: userOrgId,
+        metadata: {
+          gender: gender || '',
+          allergies: allergies || '',
+          notes: notes || '',
+        },
         isActive: true,
       },
     })
@@ -61,7 +68,7 @@ export class FamilyService {
     }
 
     // Members can only view family from their own profile unless admin/staff
-    if (userRole === UserRole.MEMBER && member.userId.toString() !== userId) {
+    if (userRole === UserRole.MEMBER && member.userId.toString() !== userId.toString()) {
       throw new ForbiddenException('Cannot access other member family data')
     }
 
@@ -99,7 +106,7 @@ export class FamilyService {
     }
 
     // Members can only update family in their own profile unless admin
-    if (userRole === UserRole.MEMBER && familyMember.member.userId.toString() !== userId) {
+    if (userRole === UserRole.MEMBER && familyMember.member.userId.toString() !== userId.toString()) {
       throw new ForbiddenException('Cannot update family members from other profiles')
     }
 
@@ -137,7 +144,7 @@ export class FamilyService {
     }
 
     // Members can only remove family from their own profile unless admin
-    if (userRole === UserRole.MEMBER && familyMember.member.userId.toString() !== userId) {
+    if (userRole === UserRole.MEMBER && familyMember.member.userId.toString() !== userId.toString()) {
       throw new ForbiddenException('Cannot remove family members from other profiles')
     }
 

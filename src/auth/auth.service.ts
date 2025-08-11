@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common'
+import { Injectable, UnauthorizedException, BadRequestException } from '@nestjs/common'
 import { JwtService } from '@nestjs/jwt'
 import * as bcrypt from 'bcrypt'
 import { PrismaService } from '../config/prisma.service'
@@ -139,6 +139,16 @@ export class AuthService {
       
       return userWithoutPassword
     } catch (error) {
+      // Handle Prisma errors
+      if (error.code === 'P2002') {
+        // Unique constraint violation
+        throw new BadRequestException('User with this email already exists')
+      }
+      if (error.code === 'P2003') {
+        // Foreign key constraint violation
+        throw new BadRequestException('Invalid organization reference')
+      }
+      // Re-throw other errors
       throw error
     }
   }
@@ -183,23 +193,24 @@ export class AuthService {
       throw new UnauthorizedException('User already exists with this email')
     }
 
-    // Hash password
-    const saltRounds = parseInt(process.env.BCRYPT_ROUNDS) || 12
-    const passwordHash = await bcrypt.hash(createAdminDto.password, saltRounds)
+    try {
+      // Hash password
+      const saltRounds = parseInt(process.env.BCRYPT_ROUNDS) || 12
+      const passwordHash = await bcrypt.hash(createAdminDto.password, saltRounds)
 
-    // Create user account with specified role
-    const user = await this.prisma.userAccount.create({
-      data: {
-        email: createAdminDto.email,
-        passwordHash,
-        role: createAdminDto.role,
-        orgId: creatorOrgId,
-        isActive: true,
-      },
-      include: {
-        org: true,
-      },
-    })
+      // Create user account with specified role
+      const user = await this.prisma.userAccount.create({
+        data: {
+          email: createAdminDto.email,
+          passwordHash,
+          role: createAdminDto.role,
+          orgId: creatorOrgId,
+          isActive: true,
+        },
+        include: {
+          org: true,
+        },
+      })
 
     // Calculate next payment due date based on membership category
     const now = new Date()
@@ -234,11 +245,24 @@ export class AuthService {
       },
     })
 
-    const { passwordHash: _, ...userWithoutPassword } = user
-    
-    return {
-      ...userWithoutPassword,
-      message: `Admin user created successfully with ${createAdminDto.role} role`
+      const { passwordHash: _, ...userWithoutPassword } = user
+      
+      return {
+        ...userWithoutPassword,
+        message: `Admin user created successfully with ${createAdminDto.role} role`
+      }
+    } catch (error) {
+      // Handle Prisma errors
+      if (error.code === 'P2002') {
+        // Unique constraint violation
+        throw new BadRequestException('User with this email already exists')
+      }
+      if (error.code === 'P2003') {
+        // Foreign key constraint violation
+        throw new BadRequestException('Invalid organization reference')
+      }
+      // Re-throw other errors
+      throw error
     }
   }
 
@@ -293,6 +317,15 @@ export class AuthService {
 
   async bootstrapSuperAdmin(email: string, password: string, orgId: number) {
     // This method should only be used for initial setup
+    // First check if organization exists
+    const organization = await this.prisma.organization.findUnique({
+      where: { id: orgId }
+    })
+
+    if (!organization) {
+      throw new BadRequestException('Organization not found')
+    }
+
     // Check if any ORG_ADMIN already exists in this organization
     const existingAdmin = await this.prisma.userAccount.findFirst({
       where: {
@@ -318,40 +351,54 @@ export class AuthService {
     const saltRounds = parseInt(process.env.BCRYPT_ROUNDS) || 12
     const passwordHash = await bcrypt.hash(password, saltRounds)
 
-    // Create super admin user
-    const user = await this.prisma.userAccount.create({
-      data: {
-        email,
-        passwordHash,
-        role: UserRole.ORG_ADMIN,
-        orgId,
-        isActive: true,
-      },
-      include: {
-        org: true,
-      },
-    })
+    try {
+      // Create super admin user
+      const user = await this.prisma.userAccount.create({
+        data: {
+          email,
+          passwordHash,
+          role: UserRole.ORG_ADMIN,
+          orgId,
+          isActive: true,
+        },
+        include: {
+          org: true,
+        },
+      })
 
-    // Create member profile
-    await this.prisma.memberProfile.create({
-      data: {
-        userId: user.id,
-        orgId: user.orgId,
-        firstName: 'Super',
-        lastName: 'Admin',
-        phone: '000-000-0000',
-        membershipCategory: MembershipCategory.HONORARY,
-        membershipNotes: 'Initial super admin - should be deleted after delegation',
-        emergencyContact: {},
-        metadata: {},
-      },
-    })
+      // Create member profile
+      await this.prisma.memberProfile.create({
+        data: {
+          userId: user.id,
+          orgId: user.orgId,
+          firstName: 'Super',
+          lastName: 'Admin',
+          phone: '000-000-0000',
+          membershipCategory: MembershipCategory.HONORARY,
+          membershipNotes: 'Initial super admin - should be deleted after delegation',
+          emergencyContact: {},
+          metadata: {},
+        },
+      })
 
-    const { passwordHash: _, ...userWithoutPassword } = user
-    
-    return {
-      ...userWithoutPassword,
-      message: 'Super admin created successfully. Please create a proper admin user and delete this account.'
+      const { passwordHash: _, ...userWithoutPassword } = user
+      
+      return {
+        ...userWithoutPassword,
+        message: 'Super admin created successfully. Please create a proper admin user and delete this account.'
+      }
+    } catch (error) {
+      // Handle Prisma errors
+      if (error.code === 'P2002') {
+        // Unique constraint violation
+        throw new BadRequestException('User with this email already exists')
+      }
+      if (error.code === 'P2003') {
+        // Foreign key constraint violation
+        throw new BadRequestException('Invalid organization reference')
+      }
+      // Re-throw other errors
+      throw error
     }
   }
 }

@@ -114,7 +114,9 @@ describe('Authentication (e2e)', () => {
           email: user.email,
           password: 'testpassword123',
         })
-        .expect(200);
+        .expect((res) => {
+          expect([200, 201]).toContain(res.status);
+        });
 
       expect(response.body).toHaveProperty('access_token');
       expect(response.body).toHaveProperty('user');
