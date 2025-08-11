@@ -1,0 +1,86 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres-staging
+  namespace: eventbuddy-staging
+  labels:
+    app: postgres
+    environment: staging
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+      environment: staging
+  template:
+    metadata:
+      labels:
+        app: postgres
+        environment: staging
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:15-alpine
+        ports:
+        - containerPort: 5432
+          name: postgres
+        env:
+        - name: POSTGRES_DB
+          value: eventbuddy
+        - name: POSTGRES_USER
+          value: eventbuddy_user
+        - name: POSTGRES_PASSWORD
+          value: eventbuddy_pass
+        - name: PGDATA
+          value: /var/lib/postgresql/data/pgdata
+        volumeMounts:
+        - name: postgres-storage
+          mountPath: /var/lib/postgresql/data
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+        livenessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - eventbuddy_user
+            - -d
+            - eventbuddy
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - eventbuddy_user
+            - -d
+            - eventbuddy
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: postgres-storage
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: eventbuddy-staging
+  labels:
+    app: postgres
+    environment: staging
+spec:
+  selector:
+    app: postgres
+    environment: staging
+  ports:
+  - name: postgres
+    port: 5432
+    targetPort: 5432
+  type: ClusterIP

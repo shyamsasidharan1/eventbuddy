@@ -7,7 +7,7 @@ on:
     branches: [ main ]
 
 env:
-  NODE_VERSION: '18'
+  NODE_VERSION: '20'
   GCP_REGISTRY: us-central1-docker.pkg.dev
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   REPOSITORY: eventbuddy-repo
@@ -15,8 +15,30 @@ env:
 
 jobs:
   test:
-    name: Test
+    name: Test & Quality
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -30,11 +52,25 @@ jobs:
     - name: Install dependencies
       run: npm ci
 
+    - name: Generate Prisma client
+      run: npx prisma generate
+
     - name: Run linting
       run: npm run lint
 
-    - name: Run tests
-      run: npm test
+    - name: Run tests with coverage
+      run: npm run test:ci
+      env:
+        DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test
+        REDIS_URL: redis://localhost:6379
+        JWT_SECRET: test-jwt-secret-key
+
+    - name: Upload coverage reports
+      uses: codecov/codecov-action@v3
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        files: ./coverage/lcov.info
+        fail_ci_if_error: false
 
   build:
     name: Build Docker Image
@@ -135,18 +171,60 @@ jobs:
       run: |
         gcloud container clusters get-credentials ${{ secrets.GKE_CLUSTER_NAME }} --zone ${{ secrets.GKE_ZONE }} --project ${{ secrets.GCP_PROJECT_ID }}
 
+    - name: Run database migrations
+      run: |
+        # Create a temporary job for migrations
+        cat <<EOF > k8s/migration-job.yaml
+        apiVersion: batch/v1
+        kind: Job
+        metadata:
+          name: eventbuddy-migration-\$(date +%s)
+          namespace: eventbuddy
+        spec:
+          template:
+            spec:
+              restartPolicy: Never
+              containers:
+              - name: migrate
+                image: ${{ needs.build.outputs.image }}
+                command: ["npx", "prisma", "migrate", "deploy"]
+                envFrom:
+                - configMapRef:
+                    name: eventbuddy-config
+                env:
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: eventbuddy-secrets
+                      key: database-url
+        EOF
+        kubectl apply -f k8s/migration-job.yaml
+        kubectl wait --for=condition=complete job -l job-name=eventbuddy-migration --timeout=300s -n eventbuddy
+
     - name: Deploy to staging
       run: |
         echo "Deploying image: ${{ needs.build.outputs.image }}"
-        # Create a temporary deployment file with the correct image
-        cp k8s/deployment.yaml k8s/deployment-temp.yaml
-        sed -i 's|us-central1-docker.pkg.dev/hypnotic-surfer-468513-a0/eventbuddy-repo/eventbuddy:latest|${{ needs.build.outputs.image }}|g' k8s/deployment-temp.yaml
         
-        kubectl apply -f k8s/namespace.yaml
-        kubectl apply -f k8s/configmap.yaml
-        kubectl apply -f k8s/deployment-temp.yaml
-        kubectl apply -f k8s/service.yaml
-        kubectl rollout status deployment/eventbuddy-api -n eventbuddy
+        # Create namespace
+        kubectl create namespace eventbuddy-staging --dry-run=client -o yaml | kubectl apply -f -
+        
+        # Deploy databases first
+        kubectl apply -f k8s/postgres-staging.yaml
+        kubectl apply -f k8s/redis-staging.yaml
+        
+        # Wait for databases to be ready
+        kubectl wait --for=condition=available deployment/postgres-staging -n eventbuddy-staging --timeout=300s
+        kubectl wait --for=condition=available deployment/redis-staging -n eventbuddy-staging --timeout=300s
+        
+        # Create a temporary deployment file with the correct image
+        cp k8s/deployment-staging.yaml k8s/deployment-staging-temp.yaml
+        sed -i 's|us-central1-docker.pkg.dev/hypnotic-surger-468513-a0/eventbuddy-repo/eventbuddy:latest|${{ needs.build.outputs.image }}|g' k8s/deployment-staging-temp.yaml
+        
+        # Deploy API
+        kubectl apply -f k8s/configmap-staging.yaml
+        kubectl apply -f k8s/deployment-staging-temp.yaml
+        kubectl apply -f k8s/service-staging.yaml
+        kubectl rollout status deployment/eventbuddy-api-staging -n eventbuddy-staging
 
   deploy-production:
     name: Deploy to Production
@@ -173,6 +251,37 @@ jobs:
     - name: Get GKE credentials
       run: |
         gcloud container clusters get-credentials ${{ secrets.GKE_CLUSTER_NAME }} --zone ${{ secrets.GKE_ZONE }} --project ${{ secrets.GCP_PROJECT_ID }}
+
+    - name: Run production database migrations
+      run: |
+        PROD_IMAGE="${{ env.GCP_REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:latest"
+        # Create a temporary job for production migrations
+        cat <<EOF > k8s/migration-job.yaml
+        apiVersion: batch/v1
+        kind: Job
+        metadata:
+          name: eventbuddy-migration-\$(date +%s)
+          namespace: eventbuddy
+        spec:
+          template:
+            spec:
+              restartPolicy: Never
+              containers:
+              - name: migrate
+                image: \$PROD_IMAGE
+                command: ["npx", "prisma", "migrate", "deploy"]
+                envFrom:
+                - configMapRef:
+                    name: eventbuddy-config
+                env:
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: eventbuddy-secrets
+                      key: database-url
+        EOF
+        kubectl apply -f k8s/migration-job.yaml
+        kubectl wait --for=condition=complete job -l job-name=eventbuddy-migration --timeout=300s -n eventbuddy
 
     - name: Deploy to production
       run: |
