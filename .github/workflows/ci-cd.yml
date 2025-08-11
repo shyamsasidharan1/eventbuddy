@@ -55,6 +55,11 @@ jobs:
     - name: Generate Prisma client
       run: npx prisma generate
 
+    - name: Setup database schema
+      run: npx prisma db push
+      env:
+        DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test
+
     - name: Run linting
       run: npm run lint
 
