@@ -55,6 +55,12 @@ jobs:
     - name: Generate Prisma client
       run: npx prisma generate
 
+    - name: Setup database extensions
+      run: |
+        PGPASSWORD=postgres psql -h localhost -U postgres -d test -c "CREATE EXTENSION IF NOT EXISTS citext;"
+      env:
+        PGPASSWORD: postgres
+
     - name: Setup database schema
       run: npx prisma db push
       env:
