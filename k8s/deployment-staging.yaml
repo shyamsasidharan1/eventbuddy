@@ -23,7 +23,7 @@ spec:
     spec:
       containers:
       - name: eventbuddy-api
-        image: us-central1-docker.pkg.dev/hypnotic-surger-468513-a0/eventbuddy-repo/eventbuddy:latest
+        image: us-central1-docker.pkg.dev/hypnotic-surfer-468513-a0/eventbuddy-repo/eventbuddy:develop
         ports:
         - containerPort: 3001
           name: http

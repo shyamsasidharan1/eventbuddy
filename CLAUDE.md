@@ -257,7 +257,7 @@ const events = await prisma.event.findMany({
 4. **Deploy**: Rolling updates to GKE with health checks
 
 ### Required GitHub Secrets
-- `GCP_PROJECT_ID`: `hypnotic-surger-468513-a0`
+- `GCP_PROJECT_ID`: `hypnotic-surfer-468513-a0`
 - `GCP_SA_KEY`: Service account JSON for authentication
 - `GKE_CLUSTER_NAME`: Your GKE cluster name
 - `GKE_ZONE`: Deployment zone (e.g., `us-central1-a`)

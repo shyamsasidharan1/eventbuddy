@@ -131,10 +131,14 @@ jobs:
     - name: Output image
       id: image
       run: |
+        # Debug: Show all available tags
+        echo "All tags from metadata:"
+        echo "${{ steps.meta.outputs.tags }}"
+        
         # Use the first tag from the metadata action
         IMAGE_TAG=$(echo "${{ steps.meta.outputs.tags }}" | head -n1)
+        echo "Selected image tag: $IMAGE_TAG"
         echo "image=$IMAGE_TAG" >> $GITHUB_OUTPUT
-        echo "Built image: $IMAGE_TAG"
 
   security-scan:
     name: Security Scan
@@ -185,6 +189,18 @@ jobs:
 
     - name: Run database migrations
       run: |
+        # Debug: Show received image reference
+        echo "Received image from build job: ${{ needs.build.outputs.image }}"
+        
+        # Set image with fallback to develop tag
+        if [ -z "${{ needs.build.outputs.image }}" ]; then
+          MIGRATION_IMAGE="${{ env.GCP_REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:develop"
+          echo "Using fallback image: $MIGRATION_IMAGE"
+        else
+          MIGRATION_IMAGE="${{ needs.build.outputs.image }}"
+          echo "Using build job image: $MIGRATION_IMAGE"
+        fi
+        
         # Create a temporary job for migrations with unique timestamp
         MIGRATION_JOB_NAME="eventbuddy-migration-$(date +%s)"
         cat <<EOF > k8s/migration-job.yaml
@@ -199,7 +215,7 @@ jobs:
               restartPolicy: Never
               containers:
               - name: migrate
-                image: ${{ needs.build.outputs.image }}
+                image: $MIGRATION_IMAGE
                 command: ["npx", "prisma", "db", "push"]
                 envFrom:
                 - configMapRef:
@@ -216,7 +232,16 @@ jobs:
 
     - name: Deploy to staging
       run: |
-        echo "Deploying image: ${{ needs.build.outputs.image }}"
+        # Use the same image selection logic  
+        if [ -z "${{ needs.build.outputs.image }}" ]; then
+          DEPLOY_IMAGE="${{ env.GCP_REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:develop"
+          echo "Using fallback deployment image: $DEPLOY_IMAGE"
+        else
+          DEPLOY_IMAGE="${{ needs.build.outputs.image }}"
+          echo "Using build job deployment image: $DEPLOY_IMAGE"
+        fi
+        
+        echo "Deploying image: $DEPLOY_IMAGE"
         
         # Create namespace
         kubectl create namespace eventbuddy-staging --dry-run=client -o yaml | kubectl apply -f -
@@ -231,7 +256,7 @@ jobs:
         
         # Create a temporary deployment file with the correct image
         cp k8s/deployment-staging.yaml k8s/deployment-staging-temp.yaml
-        sed -i 's|us-central1-docker.pkg.dev/hypnotic-surger-468513-a0/eventbuddy-repo/eventbuddy:latest|${{ needs.build.outputs.image }}|g' k8s/deployment-staging-temp.yaml
+        sed -i "s|us-central1-docker.pkg.dev/hypnotic-surfer-468513-a0/eventbuddy-repo/eventbuddy:develop|$DEPLOY_IMAGE|g" k8s/deployment-staging-temp.yaml
         
         # Deploy API
         kubectl apply -f k8s/configmap-staging.yaml
