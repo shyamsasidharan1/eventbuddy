@@ -198,7 +198,17 @@ jobs:
         # Create namespace first
         kubectl create namespace eventbuddy-staging --dry-run=client -o yaml | kubectl apply -f -
         
-        # Deploy database initialization scripts and databases
+        # Create application secrets
+        kubectl create secret generic eventbuddy-staging-secrets \
+          --from-literal=database-url="postgresql://eventbuddy_user:eventbuddy_pass@postgres:5432/eventbuddy" \
+          --from-literal=redis-url="redis://redis:6379" \
+          --from-literal=jwt-secret="staging-jwt-secret-key-change-in-production" \
+          --from-literal=sendgrid-api-key="" \
+          -n eventbuddy-staging \
+          --dry-run=client -o yaml | kubectl apply -f -
+        
+        # Deploy configuration and database infrastructure
+        kubectl apply -f k8s/configmap-staging.yaml
         kubectl apply -f k8s/postgres-init-configmap.yaml
         kubectl apply -f k8s/postgres-staging.yaml
         kubectl apply -f k8s/redis-staging.yaml
@@ -281,7 +291,6 @@ jobs:
         sed -i "s|us-central1-docker.pkg.dev/hypnotic-surfer-468513-a0/eventbuddy-repo/eventbuddy:develop|$DEPLOY_IMAGE|g" k8s/deployment-staging-temp.yaml
         
         # Deploy API
-        kubectl apply -f k8s/configmap-staging.yaml
         kubectl apply -f k8s/deployment-staging-temp.yaml
         kubectl apply -f k8s/service-staging.yaml
         kubectl rollout status deployment/eventbuddy-api-staging -n eventbuddy-staging
@@ -346,6 +355,15 @@ jobs:
 
     - name: Deploy to production
       run: |
+        # Create production secrets
+        kubectl create secret generic eventbuddy-secrets \
+          --from-literal=database-url="${{ secrets.PRODUCTION_DATABASE_URL }}" \
+          --from-literal=redis-url="${{ secrets.PRODUCTION_REDIS_URL }}" \
+          --from-literal=jwt-secret="${{ secrets.PRODUCTION_JWT_SECRET }}" \
+          --from-literal=sendgrid-api-key="${{ secrets.SENDGRID_API_KEY }}" \
+          -n eventbuddy \
+          --dry-run=client -o yaml | kubectl apply -f -
+        
         # For main branch, use latest tag
         PROD_IMAGE="${{ env.GCP_REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:latest"
         echo "Deploying production image: $PROD_IMAGE"
