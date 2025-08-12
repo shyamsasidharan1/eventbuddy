@@ -88,8 +88,9 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     outputs:
-      image: ${{ steps.image.outputs.image }}
       digest: ${{ steps.build.outputs.digest }}
+      sha-tag: ${{ steps.image.outputs.sha-tag }}
+      develop-tag: ${{ steps.image.outputs.develop-tag }}
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -128,24 +129,22 @@ jobs:
         cache-from: type=gha
         cache-to: type=gha,mode=max
 
-    - name: Output image
+    - name: Output image tags
       id: image
       run: |
         # Debug: Show all available tags
         echo "All tags from metadata:"
         echo "${{ steps.meta.outputs.tags }}"
         
-        # Use the SHA-tagged image (second line) to avoid caching issues
-        SHA_TAG=$(echo "${{ steps.meta.outputs.tags }}" | grep "sha-" | head -n1)
-        if [ -n "$SHA_TAG" ]; then
-          echo "Selected SHA-tagged image: $SHA_TAG"
-          echo "image=$SHA_TAG" >> $GITHUB_OUTPUT
-        else
-          # Fallback to first tag if SHA tag not found
-          IMAGE_TAG=$(echo "${{ steps.meta.outputs.tags }}" | head -n1)
-          echo "Fallback to first tag: $IMAGE_TAG"
-          echo "image=$IMAGE_TAG" >> $GITHUB_OUTPUT
-        fi
+        # Extract SHA suffix and develop tag suffix to avoid secrets in outputs
+        SHA_SUFFIX=$(echo "${{ steps.meta.outputs.tags }}" | grep "sha-" | head -n1 | sed 's/.*sha-/sha-/')
+        DEVELOP_SUFFIX="develop"
+        
+        echo "SHA tag suffix: $SHA_SUFFIX"
+        echo "Develop tag suffix: $DEVELOP_SUFFIX"
+        
+        echo "sha-tag=$SHA_SUFFIX" >> $GITHUB_OUTPUT
+        echo "develop-tag=$DEVELOP_SUFFIX" >> $GITHUB_OUTPUT
 
   security-scan:
     name: Security Scan
@@ -212,25 +211,18 @@ jobs:
 
     - name: Run database migrations
       run: |
-        # Validate build job output and use SHA-tagged image
-        BUILD_IMAGE="${{ needs.build.outputs.image }}"
-        echo "Build job image output: '$BUILD_IMAGE'"
+        # Use the fresh SHA-tagged image that was just built and pushed
+        # Extract the commit SHA to build the image tag
+        COMMIT_SHA=$(echo "${{ github.sha }}" | head -c 7)
+        SHA_TAG="sha-$COMMIT_SHA"
         
-        if [ -z "$BUILD_IMAGE" ]; then
-          echo "ERROR: No image output from build job"
-          echo "Available build outputs:"
-          echo "- image: '${{ needs.build.outputs.image }}'"
-          echo "- digest: '${{ needs.build.outputs.digest }}'"
-          
-          # Use develop tag as emergency fallback but force pull
-          MIGRATION_IMAGE="${{ env.GCP_REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:develop"
-          echo "Using emergency fallback image: $MIGRATION_IMAGE"
-          FORCE_PULL="Always"
-        else
-          MIGRATION_IMAGE="$BUILD_IMAGE"
-          echo "Using SHA-tagged image for migration: $MIGRATION_IMAGE"
-          FORCE_PULL="IfNotPresent"
-        fi
+        # Use the SHA-tagged image for migration (this ensures we get the fresh build)
+        MIGRATION_IMAGE="${{ env.GCP_REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:$SHA_TAG"
+        echo "Using fresh SHA-tagged image for migration: $MIGRATION_IMAGE"
+        
+        # Always pull latest image for migrations to ensure latest schema/code
+        FORCE_PULL="Always"
+        echo "Using imagePullPolicy: $FORCE_PULL for migration job"
         
         # Create a temporary job for migrations with unique timestamp
         MIGRATION_JOB_NAME="eventbuddy-migration-$(date +%s)"
@@ -247,8 +239,9 @@ jobs:
               containers:
               - name: migrate
                 image: $MIGRATION_IMAGE
+                imagePullPolicy: $FORCE_PULL
                 command: ["sh", "-c"]
-                args: ["npx prisma generate && npx prisma db push --force-reset"]
+                args: ["npx prisma generate && npx prisma db push"]
                 envFrom:
                 - configMapRef:
                     name: eventbuddy-staging-config
@@ -276,9 +269,12 @@ jobs:
 
     - name: Deploy application to staging
       run: |
-        # Use SHA-tagged image from build job
-        DEPLOY_IMAGE="${{ needs.build.outputs.image }}"
-        echo "Deploying SHA-tagged application image: $DEPLOY_IMAGE"
+        # Use the same fresh SHA-tagged image that was used for migration
+        COMMIT_SHA=$(echo "${{ github.sha }}" | head -c 7)
+        SHA_TAG="sha-$COMMIT_SHA"
+        
+        DEPLOY_IMAGE="${{ env.GCP_REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:$SHA_TAG"
+        echo "Deploying fresh SHA-tagged application image: $DEPLOY_IMAGE"
         
         # Create a temporary deployment file with the correct image
         cp k8s/deployment-staging.yaml k8s/deployment-staging-temp.yaml

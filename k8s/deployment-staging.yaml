@@ -24,6 +24,7 @@ spec:
       containers:
       - name: eventbuddy-api
         image: us-central1-docker.pkg.dev/hypnotic-surfer-468513-a0/eventbuddy-repo/eventbuddy:develop
+        imagePullPolicy: Always
         ports:
         - containerPort: 3001
           name: http
