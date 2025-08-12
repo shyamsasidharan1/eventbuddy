@@ -1,6 +1,6 @@
 #!/bin/bash
-# EventBuddy Complete Shutdown Script
-# Deletes entire GKE cluster to save costs overnight
+# EventBuddy Staging Shutdown Script
+# Deletes GKE cluster to save costs (staging only - does NOT touch production databases)
 
 set -eo pipefail
 
@@ -16,8 +16,11 @@ PROJECT_ID="${GCP_PROJECT_ID:-hypnotic-surfer-468513-a0}"
 CLUSTER_NAME="${GKE_CLUSTER_NAME:-eventbuddy-cluster}"
 ZONE="${GKE_ZONE:-us-central1-a}"
 
-echo -e "${RED}🌙 EventBuddy Complete Shutdown (Cost Savings)${NC}"
-echo "=============================================="
+echo -e "${RED}🌙 EventBuddy Staging Shutdown (Cost Savings)${NC}"
+echo "==============================================="
+echo -e "${YELLOW}⚠️  This script is for STAGING only${NC}"
+echo -e "${YELLOW}⚠️  Production managed databases will NOT be touched${NC}"
+echo ""
 
 # Check authentication
 echo -e "${YELLOW}🔐 Checking GCP authentication...${NC}"
@@ -43,48 +46,78 @@ if [ -n "${PROJECT_ID}" ]; then
     gcloud config set project "${PROJECT_ID}" &>/dev/null
 fi
 
+# Check for production resources
+echo -e "${YELLOW}🔍 Checking for production resources...${NC}"
+PROD_SQL=$(gcloud sql instances list --filter="name~eventbuddy-postgres-production" --format="value(name)" 2>/dev/null || echo "")
+PROD_REDIS=$(gcloud redis instances list --region=us-central1 --filter="name~eventbuddy-redis-production" --format="value(name)" 2>/dev/null || echo "")
+
+if [ -n "${PROD_SQL}" ] || [ -n "${PROD_REDIS}" ]; then
+    echo -e "${YELLOW}⚠️  Production databases detected:${NC}"
+    [ -n "${PROD_SQL}" ] && echo -e "  - Cloud SQL: ${PROD_SQL}"
+    [ -n "${PROD_REDIS}" ] && echo -e "  - Redis: ${PROD_REDIS}"
+    echo -e "${GREEN}✅ These will NOT be deleted (production protection)${NC}"
+    echo ""
+fi
+
 # Show current cluster status
-echo -e "${YELLOW}🔍 Current cluster status:${NC}"
+echo -e "${YELLOW}🔍 Current staging cluster status:${NC}"
 if gcloud container clusters describe "${CLUSTER_NAME}" --zone="${ZONE}" &>/dev/null; then
     echo -e "${GREEN}✅ Cluster is running${NC}"
     
     # Show current costs
     NODES=$(gcloud compute instances list --filter="name~gke-${CLUSTER_NAME}" --format="value(name)" | wc -l)
-    echo -e "${BLUE}💰 Current infrastructure:${NC}"
+    echo -e "${BLUE}💰 Current staging infrastructure:${NC}"
     echo -e "  - Cluster: ${CLUSTER_NAME}"
     echo -e "  - Nodes: ${NODES} instances"
-    echo -e "  - Estimated cost: ~$25-30/month"
+    echo -e "  - Estimated cost: ~$20-40/month"
     echo ""
     
     # Show what will be deleted
-    echo -e "${YELLOW}⚠️  This will DELETE:${NC}"
-    echo -e "  - Complete GKE cluster"
+    echo -e "${YELLOW}⚠️  This will DELETE (staging only):${NC}"
+    echo -e "  - GKE cluster: ${CLUSTER_NAME}"
     echo -e "  - All worker nodes (compute instances)"
-    echo -e "  - All applications and data"
+    echo -e "  - All staging applications and data"
     echo -e "  - Load balancers and persistent disks"
     echo ""
-    echo -e "${GREEN}💰 Cost savings: ~$25-30/month while shut down${NC}"
-    echo -e "${BLUE}🔄 Recreate tomorrow: ./deploy-staging.sh${NC}"
+    echo -e "${GREEN}💰 Cost savings: ~$20-40/month while shut down${NC}"
+    echo -e "${BLUE}🔄 Recreate staging: ./deploy-staging.sh + push to develop branch${NC}"
+    echo ""
+    
+    # Production safety check
+    echo -e "${GREEN}✅ PRODUCTION SAFETY:${NC}"
+    echo -e "  - Production databases will remain running"
+    echo -e "  - Only staging cluster will be deleted"
+    echo -e "  - This is safe for overnight cost savings"
     echo ""
     
     # Confirmation
-    echo -e "${RED}🚨 FINAL WARNING: This will delete EVERYTHING!${NC}"
-    read -p "Type 'shutdown now' to confirm complete deletion: " -r CONFIRM
+    echo -e "${RED}🚨 FINAL CONFIRMATION${NC}"
+    echo -e "${YELLOW}This will delete the staging GKE cluster only${NC}"
+    read -p "Type 'shutdown staging' to confirm: " -r CONFIRM
     
-    if [[ "$CONFIRM" != "shutdown now" ]]; then
+    if [[ "$CONFIRM" != "shutdown staging" ]]; then
         echo -e "${GREEN}✅ Shutdown cancelled - infrastructure preserved${NC}"
         exit 0
     fi
     
-    echo -e "${RED}💥 Shutting down complete infrastructure...${NC}"
+    echo -e "${RED}💥 Shutting down staging cluster...${NC}"
     gcloud container clusters delete "${CLUSTER_NAME}" --zone="${ZONE}" --quiet
     
     echo ""
-    echo -e "${GREEN}🌙 Complete shutdown successful!${NC}"
-    echo -e "${BLUE}💰 Cost savings: Active (no running infrastructure)${NC}"
-    echo -e "${BLUE}🔄 To restart tomorrow: ./deploy-staging.sh${NC}"
+    echo -e "${GREEN}🌙 Staging shutdown successful!${NC}"
+    echo -e "${BLUE}💰 Cost savings: Active (~$20-40/month saved)${NC}"
+    echo -e "${BLUE}🔄 To restart staging:${NC}"
+    echo -e "  1. Run: ./deploy-staging.sh"
+    echo -e "  2. Push to develop branch to deploy applications"
+    echo ""
+    if [ -n "${PROD_SQL}" ] || [ -n "${PROD_REDIS}" ]; then
+        echo -e "${GREEN}✅ Production databases remain running and safe${NC}"
+    fi
     
 else
-    echo -e "${YELLOW}⚠️  No cluster found - already shut down${NC}"
+    echo -e "${YELLOW}⚠️  No staging cluster found - already shut down${NC}"
     echo -e "${GREEN}💰 Cost savings: Already active${NC}"
+    if [ -n "${PROD_SQL}" ] || [ -n "${PROD_REDIS}" ]; then
+        echo -e "${BLUE}📊 Production databases still running (as expected)${NC}"
+    fi
 fi
