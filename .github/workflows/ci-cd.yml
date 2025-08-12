@@ -241,7 +241,7 @@ jobs:
                 image: $MIGRATION_IMAGE
                 imagePullPolicy: $FORCE_PULL
                 command: ["sh", "-c"]
-                args: ["npx prisma generate && npx prisma db push"]
+                args: ["npx prisma generate && npx prisma db push --accept-data-loss"]
                 envFrom:
                 - configMapRef:
                     name: eventbuddy-staging-config
