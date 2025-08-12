@@ -71,3 +71,6 @@ build/
 
 # Kubernetes secrets (if any)
 k8s/secrets/
+
+# temp files 
+temp

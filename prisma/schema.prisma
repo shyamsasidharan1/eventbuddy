@@ -1,0 +1,299 @@
+// prisma/schema.prisma
+// EventBuddy Phase 1 - Charity Member & Events Management
+// Multi-tenant ready with org_id on all entities
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+//
+// Enums
+//
+enum UserRole {
+  ORG_ADMIN
+  MEMBER
+  EVENT_STAFF
+}
+
+enum RegStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  WAITLISTED
+}
+
+enum MembershipCategory {
+  REGULAR
+  PREMIUM
+  LIFE
+  EXECUTIVE_BOARD
+  HONORARY
+  STUDENT
+  SENIOR
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  LOGIN
+  LOGOUT
+  REGISTER_EVENT
+  CHECKIN
+  EXPORT_REPORT
+}
+
+//
+// Core Models
+//
+model Organization {
+  id         Int           @id @default(autoincrement())
+  name       String
+  webUrl     String?       @unique @db.VarChar(255) // Optional but unique when present
+  settings   Json          @default("{}")
+  isActive   Boolean       @default(true)
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  // Relations
+  users      UserAccount[]
+  members    MemberProfile[]
+  families   FamilyMember[]
+  events     Event[]
+  regs       Registration[]
+  audits     AuditLog[]
+
+  @@map("organization")
+}
+
+model UserAccount {
+  id                      Int         @id @default(autoincrement())
+  orgId                   Int
+  email                   String      @db.Citext
+  passwordHash            String?     // null if using Identity Platform
+  role                    UserRole
+  isEmailVerified         Boolean     @default(false)
+  emailVerificationToken  String?
+  emailVerifiedAt         DateTime?
+  passwordResetToken      String?
+  passwordResetExpiresAt  DateTime?
+  lastLoginAt             DateTime?
+  isActive                Boolean     @default(true)
+  createdAt               DateTime    @default(now())
+  updatedAt               DateTime    @updatedAt
+
+  // Relations
+  org             Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  memberProfile   MemberProfile?
+  checkins        Registration[] @relation("CheckinStaff")
+  auditLogs       AuditLog[]
+
+  // Constraints
+  @@unique([orgId, email])
+  @@index([orgId, role], map: "user_org_role_idx")
+  @@index([orgId, isActive], map: "user_org_active_idx")
+  @@map("user_account")
+}
+
+model MemberProfile {
+  id            Int      @id @default(autoincrement())
+  orgId         Int
+  userId        Int      @unique
+  firstName     String
+  lastName      String
+  phone         String?
+  addressLine1  String?
+  addressLine2  String?
+  city          String?
+  state         String?
+  postalCode    String?
+  country       String?  @default("US")
+  dateOfBirth   DateTime? @db.Date
+  
+  // Membership details
+  membershipCategory    MembershipCategory @default(REGULAR)
+  membershipStartDate   DateTime           @default(now())
+  membershipEndDate     DateTime?          // null for lifetime memberships
+  membershipFee         Decimal            @default(0.00) @db.Decimal(10,2)
+  lastPaymentDate       DateTime?
+  nextPaymentDue        DateTime?
+  membershipNotes       String?            // Special notes about membership
+  
+  emergencyContact Json   @default("{}")  // {name, phone, relationship}
+  metadata      Json     @default("{}")   // Custom fields per org
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  org           Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user          UserAccount  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  family        FamilyMember[]
+  registrations Registration[]
+
+  // Derived fields for reporting
+  fullName String @default("") // Computed field for search/display
+
+  @@index([orgId, lastName, firstName], map: "member_org_name_idx")
+  @@index([orgId, isActive], map: "member_org_active_idx")
+  @@index([orgId, membershipCategory], map: "member_org_category_idx")
+  @@index([orgId, nextPaymentDue], map: "member_org_payment_due_idx")
+  @@map("member_profile")
+}
+
+model FamilyMember {
+  id            Int       @id @default(autoincrement())
+  orgId         Int
+  memberId      Int
+  firstName     String
+  lastName      String
+  relationship  String?   // spouse, child, parent, etc.
+  dateOfBirth   DateTime? @db.Date
+  phone         String?
+  email         String?   // For future notifications
+  metadata      Json      @default("{}")
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  org           Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  member        MemberProfile @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  registrations Registration[]
+
+  // Derived fields
+  fullName String @default("") // Computed field
+
+  @@index([memberId], map: "family_member_member_idx")
+  @@index([orgId, lastName, firstName], map: "family_org_name_idx")
+  @@map("family_member")
+}
+
+model Event {
+  id                Int       @id @default(autoincrement())
+  orgId             Int
+  title             String
+  description       String?
+  capacity          Int       // Hard capacity limit
+  maxCapacity       Int?      // Optional separate max for waitlisting
+  waitlistEnabled   Boolean   @default(true)
+  startsAt          DateTime
+  endsAt            DateTime?
+  location          String?
+  customFields      Json      @default("{}")  // Per-event registration fields
+  requiresApproval  Boolean   @default(false) // Admin must approve registrations
+  isPublic          Boolean   @default(false) // Future: public registration
+  isActive          Boolean   @default(true)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  // Relations
+  org          Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  registrations Registration[]
+
+  @@index([orgId, startsAt], map: "event_org_time_idx")
+  @@index([orgId, isActive, startsAt], map: "event_org_active_time_idx")
+  @@map("event")
+}
+
+model Registration {
+  id              Int        @id @default(autoincrement())
+  orgId           Int
+  eventId         Int
+  memberId        Int?       // Either member OR family member (not both)
+  familyMemberId  Int?
+  status          RegStatus  @default(PENDING)
+  
+  // Check-in tracking
+  checkedIn       Boolean    @default(false)
+  checkedInAt     DateTime?
+  checkedInById   Int?       // Staff member who performed check-in
+  
+  // Registration metadata
+  customData      Json       @default("{}")  // Responses to event custom fields
+  notes           String?    // Staff notes
+  registeredAt    DateTime   @default(now()) // Separate from createdAt
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  // Relations
+  org             Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  event           Event        @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  member          MemberProfile? @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  familyMember    FamilyMember? @relation(fields: [familyMemberId], references: [id], onDelete: Cascade)
+  checkedInBy     UserAccount?  @relation("CheckinStaff", fields: [checkedInById], references: [id], onDelete: SetNull)
+
+  // Constraints: Ensure one registration per person per event
+  @@unique([eventId, memberId], map: "registration_unique_member_per_event")
+  @@unique([eventId, familyMemberId], map: "registration_unique_family_per_event")
+
+  // Performance indexes
+  @@index([orgId, eventId, createdAt], map: "registration_org_event_created_idx")
+  @@index([eventId, status], map: "registration_event_status_idx") 
+  @@index([eventId, checkedIn], map: "registration_checkin_idx")
+  @@index([orgId, registeredAt], map: "registration_org_date_idx")
+  @@map("registration")
+}
+
+model AuditLog {
+  id           Int          @id @default(autoincrement())
+  orgId        Int
+  actorUserId  Int?         // User who performed the action
+  action       AuditAction
+  targetType   String?      // "Event", "Member", "Registration", etc.
+  targetId     Int?         // ID of the target entity
+  payload      Json         @default("{}")  // Action details
+  ipAddress    String?      @db.Inet
+  userAgent    String?      // Browser/device info
+  createdAt    DateTime     @default(now())
+
+  // Relations
+  org          Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  actor        UserAccount?  @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  // Performance indexes
+  @@index([orgId, createdAt(sort: Desc)], map: "audit_org_created_idx")
+  @@index([orgId, action, createdAt], map: "audit_org_action_idx")
+  @@index([actorUserId, createdAt], map: "audit_actor_created_idx")
+  @@map("audit_log")
+}
+
+//
+// Database Views (to be created in separate migration)
+//
+// These will be created as raw SQL in migrations:
+//
+// CREATE VIEW vw_event_reg_summary AS
+// SELECT 
+//   r.org_id, 
+//   r.event_id,
+//   COUNT(*) AS total_regs,
+//   COUNT(DISTINCT r.member_id) AS unique_members,
+//   COUNT(DISTINCT r.family_member_id) FILTER (WHERE r.family_member_id IS NOT NULL) AS families,
+//   COUNT(*) FILTER (WHERE r.status = 'CONFIRMED') AS confirmed_regs,
+//   COUNT(*) FILTER (WHERE r.checked_in = true) AS checked_in_count
+// FROM registration r
+// GROUP BY r.org_id, r.event_id;
+//
+// CREATE VIEW vw_membership AS
+// SELECT 
+//   m.org_id,
+//   COUNT(*) AS total_members,
+//   COUNT(*) FILTER (WHERE m.is_active = true) AS active_members,
+//   (SELECT COUNT(*) FROM family_member f WHERE f.org_id = m.org_id AND f.is_active = true) AS active_family_members
+// FROM member_profile m
+// GROUP BY m.org_id;
+//
+// CREATE VIEW vw_attendance AS
+// SELECT
+//   r.event_id,
+//   COUNT(*) FILTER (WHERE r.checked_in = true) AS checked_in,
+//   COUNT(*) FILTER (WHERE r.checked_in = false AND r.status = 'CONFIRMED') AS not_checked_in
+// FROM registration r
+// WHERE r.status = 'CONFIRMED'
+// GROUP BY r.event_id;

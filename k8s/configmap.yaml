@@ -7,5 +7,30 @@ metadata:
     app: eventbuddy
 data:
   NODE_ENV: "production"
-  PORT: "3000"
+  PORT: "3001"
   LOG_LEVEL: "info"
+  BCRYPT_ROUNDS: "12"
+  RATE_LIMIT_WINDOW_MS: "900000"
+  RATE_LIMIT_MAX: "100"
+  JWT_EXPIRES_IN: "7d"
+  FROM_EMAIL: "noreply@eventbuddy.app"
+  FROM_NAME: "EventBuddy"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: eventbuddy-staging-config
+  namespace: eventbuddy
+  labels:
+    app: eventbuddy
+    environment: staging
+data:
+  NODE_ENV: "staging"
+  PORT: "3001"
+  LOG_LEVEL: "debug"
+  BCRYPT_ROUNDS: "10"
+  RATE_LIMIT_WINDOW_MS: "600000"
+  RATE_LIMIT_MAX: "200"
+  JWT_EXPIRES_IN: "1d"
+  FROM_EMAIL: "staging-noreply@eventbuddy.app"
+  FROM_NAME: "EventBuddy Staging"

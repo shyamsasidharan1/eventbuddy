@@ -1,26 +1,68 @@
-FROM node:18-alpine
+# Multi-stage build for production-ready NestJS application
+FROM node:20-slim AS builder
+
+# Install build dependencies including OpenSSL for Prisma
+RUN apt-get update -y && apt-get install -y \
+    openssl \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-RUN addgroup -g 1001 -S nodejs && \
-    adduser -S eventbuddy -u 1001
-
+# Copy package files
 COPY package*.json ./
+COPY prisma ./prisma/
 
-RUN npm ci --only=production && \
-    npm cache clean --force
+# Install dependencies including dev dependencies
+RUN npm ci
 
-COPY --chown=eventbuddy:nodejs src/ src/
-COPY --chown=eventbuddy:nodejs .env.example .env
+# Copy source code
+COPY . .
 
-RUN mkdir -p logs && \
-    chown -R eventbuddy:nodejs logs
+# Generate Prisma client
+RUN npx prisma generate
 
+# Build the application
+RUN npm run build
+
+# Remove dev dependencies
+RUN npm ci --only=production && npm cache clean --force
+
+# Production image
+FROM node:20-slim AS runner
+
+# Install runtime dependencies for Prisma compatibility
+RUN apt-get update -y && apt-get install -y \
+    openssl \
+    ca-certificates \
+    dumb-init \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Create non-root user
+RUN addgroup --system --gid 1001 nodejs && \
+    adduser --system --uid 1001 eventbuddy
+
+# Copy built application and production dependencies
+COPY --from=builder --chown=eventbuddy:nodejs /app/dist ./dist
+COPY --from=builder --chown=eventbuddy:nodejs /app/node_modules ./node_modules
+COPY --from=builder --chown=eventbuddy:nodejs /app/package*.json ./
+COPY --from=builder --chown=eventbuddy:nodejs /app/prisma ./prisma
+
+# Create necessary directories
+RUN mkdir -p logs temp && \
+    chown -R eventbuddy:nodejs logs temp
+
+# Switch to non-root user
 USER eventbuddy
 
-EXPOSE 3000
+# Expose port
+EXPOSE 3001
 
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:3000/health || exit 1
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:3001/health || exit 1
 
-CMD ["node", "src/app.js"]
+# Start the application with proper signal handling
+CMD ["dumb-init", "node", "dist/main.js"]

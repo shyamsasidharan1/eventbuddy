@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: eventbuddy-api-service-staging
+  namespace: eventbuddy-staging
+  labels:
+    app: eventbuddy
+    component: api
+    environment: staging
+spec:
+  selector:
+    app: eventbuddy
+    component: api
+    environment: staging
+  ports:
+  - name: http
+    port: 80
+    targetPort: 3001
+    protocol: TCP
+  type: ClusterIP

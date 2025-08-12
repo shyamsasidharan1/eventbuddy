@@ -7,7 +7,7 @@ on:
     branches: [ main ]
 
 env:
-  NODE_VERSION: '18'
+  NODE_VERSION: '20'
   GCP_REGISTRY: us-central1-docker.pkg.dev
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   REPOSITORY: eventbuddy-repo
@@ -15,8 +15,30 @@ env:
 
 jobs:
   test:
-    name: Test
+    name: Test & Quality
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -30,19 +52,45 @@ jobs:
     - name: Install dependencies
       run: npm ci
 
+    - name: Generate Prisma client
+      run: npx prisma generate
+
+    - name: Setup database extensions
+      run: |
+        PGPASSWORD=postgres psql -h localhost -U postgres -d test -c "CREATE EXTENSION IF NOT EXISTS citext;"
+      env:
+        PGPASSWORD: postgres
+
+    - name: Setup database schema
+      run: npx prisma db push
+      env:
+        DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test
+
     - name: Run linting
       run: npm run lint
 
-    - name: Run tests
-      run: npm test
+    - name: Run tests with coverage
+      run: npm run test:ci
+      env:
+        DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test
+        REDIS_URL: redis://localhost:6379
+        JWT_SECRET: test-jwt-secret-key
+
+    - name: Upload coverage reports
+      uses: codecov/codecov-action@v3
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        files: ./coverage/lcov.info
+        fail_ci_if_error: false
 
   build:
     name: Build Docker Image
     needs: test
     runs-on: ubuntu-latest
     outputs:
-      image: ${{ steps.image.outputs.image }}
       digest: ${{ steps.build.outputs.digest }}
+      sha-tag: ${{ steps.image.outputs.sha-tag }}
+      develop-tag: ${{ steps.image.outputs.develop-tag }}
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -81,12 +129,22 @@ jobs:
         cache-from: type=gha
         cache-to: type=gha,mode=max
 
-    - name: Output image
+    - name: Output image tags
       id: image
       run: |
-        IMAGE_TAG="${{ env.GCP_REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:pr-${{ github.event.number }}"
-        echo "image=$IMAGE_TAG" >> $GITHUB_OUTPUT
-        echo "Built image: $IMAGE_TAG"
+        # Debug: Show all available tags
+        echo "All tags from metadata:"
+        echo "${{ steps.meta.outputs.tags }}"
+        
+        # Extract SHA suffix and develop tag suffix to avoid secrets in outputs
+        SHA_SUFFIX=$(echo "${{ steps.meta.outputs.tags }}" | grep "sha-" | head -n1 | sed 's/.*sha-/sha-/')
+        DEVELOP_SUFFIX="develop"
+        
+        echo "SHA tag suffix: $SHA_SUFFIX"
+        echo "Develop tag suffix: $DEVELOP_SUFFIX"
+        
+        echo "sha-tag=$SHA_SUFFIX" >> $GITHUB_OUTPUT
+        echo "develop-tag=$DEVELOP_SUFFIX" >> $GITHUB_OUTPUT
 
   security-scan:
     name: Security Scan
@@ -135,18 +193,107 @@ jobs:
       run: |
         gcloud container clusters get-credentials ${{ secrets.GKE_CLUSTER_NAME }} --zone ${{ secrets.GKE_ZONE }} --project ${{ secrets.GCP_PROJECT_ID }}
 
-    - name: Deploy to staging
+    - name: Deploy database infrastructure
       run: |
-        echo "Deploying image: ${{ needs.build.outputs.image }}"
-        # Create a temporary deployment file with the correct image
-        cp k8s/deployment.yaml k8s/deployment-temp.yaml
-        sed -i 's|us-central1-docker.pkg.dev/hypnotic-surfer-468513-a0/eventbuddy-repo/eventbuddy:latest|${{ needs.build.outputs.image }}|g' k8s/deployment-temp.yaml
+        # Create namespace first
+        kubectl create namespace eventbuddy-staging --dry-run=client -o yaml | kubectl apply -f -
         
-        kubectl apply -f k8s/namespace.yaml
-        kubectl apply -f k8s/configmap.yaml
-        kubectl apply -f k8s/deployment-temp.yaml
-        kubectl apply -f k8s/service.yaml
-        kubectl rollout status deployment/eventbuddy-api -n eventbuddy
+        # Create application secrets
+        kubectl create secret generic eventbuddy-staging-secrets \
+          --from-literal=database-url="postgresql://eventbuddy_user:eventbuddy_pass@postgres:5432/eventbuddy" \
+          --from-literal=redis-url="redis://redis:6379" \
+          --from-literal=jwt-secret="staging-jwt-secret-key-change-in-production" \
+          --from-literal=sendgrid-api-key="" \
+          -n eventbuddy-staging \
+          --dry-run=client -o yaml | kubectl apply -f -
+        
+        # Deploy configuration and database infrastructure
+        kubectl apply -f k8s/configmap-staging.yaml
+        kubectl apply -f k8s/postgres-init-configmap.yaml
+        kubectl apply -f k8s/postgres-staging.yaml
+        kubectl apply -f k8s/redis-staging.yaml
+        
+        # Wait for databases to be ready
+        kubectl wait --for=condition=available deployment/postgres-staging -n eventbuddy-staging --timeout=300s
+        kubectl wait --for=condition=available deployment/redis-staging -n eventbuddy-staging --timeout=300s
+        
+        echo "Database infrastructure deployed and ready"
+
+    - name: Run database migrations
+      run: |
+        # Use the fresh SHA-tagged image that was just built and pushed
+        # Extract the commit SHA to build the image tag
+        COMMIT_SHA=$(echo "${{ github.sha }}" | head -c 7)
+        SHA_TAG="sha-$COMMIT_SHA"
+        
+        # Use the SHA-tagged image for migration (this ensures we get the fresh build)
+        MIGRATION_IMAGE="${{ env.GCP_REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:$SHA_TAG"
+        echo "Using fresh SHA-tagged image for migration: $MIGRATION_IMAGE"
+        
+        # Always pull latest image for migrations to ensure latest schema/code
+        FORCE_PULL="Always"
+        echo "Using imagePullPolicy: $FORCE_PULL for migration job"
+        
+        # Create a temporary job for migrations with unique timestamp
+        MIGRATION_JOB_NAME="eventbuddy-migration-$(date +%s)"
+        cat <<EOF > k8s/migration-job.yaml
+        apiVersion: batch/v1
+        kind: Job
+        metadata:
+          name: $MIGRATION_JOB_NAME
+          namespace: eventbuddy-staging
+        spec:
+          template:
+            spec:
+              restartPolicy: Never
+              containers:
+              - name: migrate
+                image: $MIGRATION_IMAGE
+                imagePullPolicy: $FORCE_PULL
+                command: ["sh", "-c"]
+                args: ["npx prisma generate && npx prisma db push --accept-data-loss"]
+                envFrom:
+                - configMapRef:
+                    name: eventbuddy-staging-config
+                env:
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: eventbuddy-staging-secrets
+                      key: database-url
+        EOF
+        kubectl apply -f k8s/migration-job.yaml
+        
+        # Wait for migration job to complete with extended timeout
+        echo "Waiting for migration job to complete..."
+        kubectl wait --for=condition=complete job/$MIGRATION_JOB_NAME --timeout=600s -n eventbuddy-staging
+        
+        # Check if migration was successful
+        if kubectl get job $MIGRATION_JOB_NAME -n eventbuddy-staging -o jsonpath='{.status.conditions[0].type}' | grep -q "Complete\|SuccessCriteriaMet"; then
+          echo "Migration completed successfully"
+        else
+          echo "Migration failed, checking logs..."
+          kubectl logs -l job-name=$MIGRATION_JOB_NAME -n eventbuddy-staging --tail=100
+          exit 1
+        fi
+
+    - name: Deploy application to staging
+      run: |
+        # Use the same fresh SHA-tagged image that was used for migration
+        COMMIT_SHA=$(echo "${{ github.sha }}" | head -c 7)
+        SHA_TAG="sha-$COMMIT_SHA"
+        
+        DEPLOY_IMAGE="${{ env.GCP_REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:$SHA_TAG"
+        echo "Deploying fresh SHA-tagged application image: $DEPLOY_IMAGE"
+        
+        # Create a temporary deployment file with the correct image
+        cp k8s/deployment-staging.yaml k8s/deployment-staging-temp.yaml
+        sed -i "s|us-central1-docker.pkg.dev/hypnotic-surfer-468513-a0/eventbuddy-repo/eventbuddy:develop|$DEPLOY_IMAGE|g" k8s/deployment-staging-temp.yaml
+        
+        # Deploy API
+        kubectl apply -f k8s/deployment-staging-temp.yaml
+        kubectl apply -f k8s/service-staging.yaml
+        kubectl rollout status deployment/eventbuddy-api-staging -n eventbuddy-staging
 
   deploy-production:
     name: Deploy to Production
@@ -174,8 +321,49 @@ jobs:
       run: |
         gcloud container clusters get-credentials ${{ secrets.GKE_CLUSTER_NAME }} --zone ${{ secrets.GKE_ZONE }} --project ${{ secrets.GCP_PROJECT_ID }}
 
+    - name: Run production database migrations
+      run: |
+        PROD_IMAGE="${{ env.GCP_REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:latest"
+        MIGRATION_JOB_NAME="eventbuddy-migration-$(date +%s)"
+        # Create a temporary job for production migrations
+        cat <<EOF > k8s/migration-job.yaml
+        apiVersion: batch/v1
+        kind: Job
+        metadata:
+          name: $MIGRATION_JOB_NAME
+          namespace: eventbuddy
+        spec:
+          template:
+            spec:
+              restartPolicy: Never
+              containers:
+              - name: migrate
+                image: $PROD_IMAGE
+                command: ["npx", "prisma", "migrate", "deploy"]
+                envFrom:
+                - configMapRef:
+                    name: eventbuddy-config
+                env:
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: eventbuddy-secrets
+                      key: database-url
+        EOF
+        kubectl apply -f k8s/migration-job.yaml
+        kubectl wait --for=condition=complete job/$MIGRATION_JOB_NAME --timeout=300s -n eventbuddy
+
     - name: Deploy to production
       run: |
+        # Create production secrets
+        kubectl create secret generic eventbuddy-secrets \
+          --from-literal=database-url="${{ secrets.PRODUCTION_DATABASE_URL }}" \
+          --from-literal=redis-url="${{ secrets.PRODUCTION_REDIS_URL }}" \
+          --from-literal=jwt-secret="${{ secrets.PRODUCTION_JWT_SECRET }}" \
+          --from-literal=sendgrid-api-key="${{ secrets.SENDGRID_API_KEY }}" \
+          -n eventbuddy \
+          --dry-run=client -o yaml | kubectl apply -f -
+        
         # For main branch, use latest tag
         PROD_IMAGE="${{ env.GCP_REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:latest"
         echo "Deploying production image: $PROD_IMAGE"

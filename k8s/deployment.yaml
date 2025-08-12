@@ -22,24 +22,32 @@ spec:
       - name: eventbuddy-api
         image: us-central1-docker.pkg.dev/hypnotic-surfer-468513-a0/eventbuddy-repo/eventbuddy:latest
         ports:
-        - containerPort: 3000
+        - containerPort: 3001
           name: http
+        envFrom:
+        - configMapRef:
+            name: eventbuddy-config
         env:
-        - name: NODE_ENV
+        - name: DATABASE_URL
           valueFrom:
-            configMapKeyRef:
-              name: eventbuddy-config
-              key: NODE_ENV
-        - name: PORT
+            secretKeyRef:
+              name: eventbuddy-secrets
+              key: database-url
+        - name: REDIS_URL
           valueFrom:
-            configMapKeyRef:
-              name: eventbuddy-config
-              key: PORT
-        - name: LOG_LEVEL
+            secretKeyRef:
+              name: eventbuddy-secrets
+              key: redis-url
+        - name: JWT_SECRET
           valueFrom:
-            configMapKeyRef:
-              name: eventbuddy-config
-              key: LOG_LEVEL
+            secretKeyRef:
+              name: eventbuddy-secrets
+              key: jwt-secret
+        - name: SENDGRID_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: eventbuddy-secrets
+              key: sendgrid-api-key
         resources:
           requests:
             memory: "64Mi"
@@ -49,20 +57,28 @@ spec:
             cpu: "100m"
         livenessProbe:
           httpGet:
-            path: /health
-            port: 3000
+            path: /api/v1/health
+            port: 3001
           initialDelaySeconds: 30
           periodSeconds: 10
           timeoutSeconds: 5
           failureThreshold: 3
         readinessProbe:
           httpGet:
-            path: /ready
-            port: 3000
+            path: /api/v1/health
+            port: 3001
           initialDelaySeconds: 5
           periodSeconds: 5
           timeoutSeconds: 3
           failureThreshold: 3
+        startupProbe:
+          httpGet:
+            path: /api/v1/health
+            port: 3001
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 6
         securityContext:
           allowPrivilegeEscalation: false
           runAsNonRoot: true
