@@ -99,7 +99,7 @@ echo -e "${YELLOW}📋 Planning infrastructure deployment...${NC}"
 echo -e "${BLUE}ℹ️  This will deploy:${NC}"
 if [ "${USE_EXISTING_CLUSTER}" = "false" ]; then
     echo -e "  - GKE cluster: ${CLUSTER_NAME} (new cluster)"
-    echo -e "  - Node pool with e2-small instances"
+    echo -e "  - Node pool with 2x e2-small instances (autoscaling 2-3 nodes)"
     echo -e "  - Service accounts and IAM roles"
 else
     echo -e "  - Using existing cluster: ${CLUSTER_NAME}"
