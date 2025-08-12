@@ -212,9 +212,25 @@ jobs:
 
     - name: Run database migrations
       run: |
-        # Use SHA-tagged image from build job to avoid caching issues
-        MIGRATION_IMAGE="${{ needs.build.outputs.image }}"
-        echo "Using SHA-tagged image for migration: $MIGRATION_IMAGE"
+        # Validate build job output and use SHA-tagged image
+        BUILD_IMAGE="${{ needs.build.outputs.image }}"
+        echo "Build job image output: '$BUILD_IMAGE'"
+        
+        if [ -z "$BUILD_IMAGE" ]; then
+          echo "ERROR: No image output from build job"
+          echo "Available build outputs:"
+          echo "- image: '${{ needs.build.outputs.image }}'"
+          echo "- digest: '${{ needs.build.outputs.digest }}'"
+          
+          # Use develop tag as emergency fallback but force pull
+          MIGRATION_IMAGE="${{ env.GCP_REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:develop"
+          echo "Using emergency fallback image: $MIGRATION_IMAGE"
+          FORCE_PULL="Always"
+        else
+          MIGRATION_IMAGE="$BUILD_IMAGE"
+          echo "Using SHA-tagged image for migration: $MIGRATION_IMAGE"
+          FORCE_PULL="IfNotPresent"
+        fi
         
         # Create a temporary job for migrations with unique timestamp
         MIGRATION_JOB_NAME="eventbuddy-migration-$(date +%s)"
