@@ -280,6 +280,42 @@ const events = await prisma.event.findMany({
 - **ConfigMaps**: Non-sensitive configuration
 - **Secrets**: Database credentials via Secret Manager CSI
 
+## Micro‑frontend Shell & MFEs (Outlook‑style admin)
+**Principles**
+- **Isolation via iframes.** No cross-iframe DOM access (ever).
+- **Typed bus only.** MFEs communicate through a typed `postMessage` bus; the Shell validates and routes messages.
+- **Stateless boot.** MFEs read `orgId`, `section`, `origin` from URL params; send `mfe/ready` on mount.
+- **Auth.** Shell owns a short‑lived JWT and sends `{ type: "auth/token" }` to each MFE once ready.
+
+**Security**
+- Shell must whitelist allowed origins and validate `event.origin` and payload schemas (zod).
+- MFEs must never touch Shell or sibling DOM.
+
+**Shared bus types (source of truth)**
+```ts
+export type Section = "members" | "admin-staff" | "event-staff" | "events";
+export type Role = "ORG_ADMIN" | "EVENT_STAFF" | "MEMBER";
+
+export type BusEvent =
+  // lifecycle/auth
+  | { type: "mfe/ready"; mfe: "nav"|"grid"|"detail"|"ribbon" }
+  | { type: "auth/token"; token: string; user: { id: string; email: string; role: Role; orgId: string } }
+  // navigation / section
+  | { type: "section/change"; section: Section }
+  // grid <-> detail (members)
+  | { type: "member/selected"; memberId: string }
+  | { type: "member/created"; memberId: string }
+  | { type: "member/status.changed"; memberId: string; status: "INVITED"|"ACTIVE"|"INACTIVE" }
+  | { type: "member/promoted"; memberId: string; role: Role }
+  // grid <-> detail (events)
+  | { type: "event/selected"; eventId: string }
+  | { type: "event/created"; eventId: string }
+  | { type: "event/updated"; eventId: string }
+  // grid controls & UX
+  | { type: "grid/search"; query: string }
+  | { type: "grid/page"; page: number; pageSize: number }
+  | { type: "toast"; level: "success"|"error"|"info"; message: string };
+
 ## Next Development Phases
 
 ### Phase 1 Completion Tasks
@@ -334,6 +370,33 @@ docker-compose exec postgres psql -U eventbuddy_user -d eventbuddy -c "\dv"
 ```
 
 ## Development Notes for Claude
+
+### Ground Rules (Claude Code)
+1) **Commit plan first, then diffs.**
+   - First output a short “Commit plan” listing files to add/change and why.
+   - After I acknowledge, output **unified diffs** (or full files).
+
+2) **Small, reviewable commits.**
+   - Group by feature; avoid mega-diffs. Keep TypeScript strict and lint clean.
+
+3) **Tests/build must pass.**
+   - Add minimal unit/e2e tests for new logic and critical paths.
+
+4) **Extend existing patterns; don’t invent new ones.**
+   - Match current folder structure, DTO/Service patterns, error handling, and auth guards.
+
+5) **Multi-tenant + RBAC discipline.**
+   - Every query filters by `orgId`; only `ORG_ADMIN` can invite/edit/(re)activate/promote.
+
+#### Prompt templates (reuse these)
+- **Schema change**
+  > Update Prisma schema as discussed. Output a commit plan, then diffs. Include migration SQL and `npx prisma generate` notes.
+
+- **Controller/Service change**
+  > Extend controller/service with new endpoints and DTOs, preserve existing routes. Commit plan first, then diffs, plus tests.
+
+- **MFE wiring**
+  > Implement typed `postMessage` broker in the Shell with origin whitelist + zod validation. Provide one Playwright e2e proving grid select → detail update. Commit plan, then diffs.
 - **Database-first development**: Schema changes require Prisma regeneration
 - **Multi-tenant awareness**: Always include `orgId` in queries and data operations
 - **Role-based security**: Check user roles before allowing operations
@@ -341,6 +404,8 @@ docker-compose exec postgres psql -U eventbuddy_user -d eventbuddy -c "\dv"
 - **Test with realistic data**: Use seed scripts for development data
 - **Performance considerations**: Use database views for reporting queries
 - **Update this document**: Keep current with new features and architectural changes
+
+
 
 ## Current Status: CI/CD Pipeline Ready for Testing ✅
 
