@@ -10,6 +10,9 @@ import { MembersModule } from './members/members.module'
 import { EventsModule } from './events/events.module'
 import { RegistrationsModule } from './registrations/registrations.module'
 import { ReportsModule } from './reports/reports.module'
+import { InvitesModule } from './invites/invites.module'
+import { EmailModule } from './email/email.module'
+import { PublicModule } from './public/public.module'
 import { AppController } from './app.controller'
 import { AppService } from './app.service'
 
@@ -36,6 +39,9 @@ import { AppService } from './app.service'
     EventsModule,
     RegistrationsModule,
     ReportsModule,
+    InvitesModule,
+    EmailModule,
+    PublicModule,
   ],
   controllers: [AppController],
   providers: [

@@ -37,6 +37,13 @@ enum MembershipCategory {
   SENIOR
 }
 
+enum MembershipStatus {
+  PENDING_APPROVAL
+  INVITED
+  ACTIVE
+  INACTIVE
+}
+
 enum AuditAction {
   CREATE
   UPDATE
@@ -46,6 +53,11 @@ enum AuditAction {
   REGISTER_EVENT
   CHECKIN
   EXPORT_REPORT
+  INVITE_SENT
+  INVITE_ACCEPTED
+  REGISTRATION_REQUESTED
+  MEMBER_APPROVED
+  MEMBER_DENIED
 }
 
 //
@@ -90,6 +102,8 @@ model UserAccount {
   // Relations
   org             Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   memberProfile   MemberProfile?
+  memberApprovals MemberProfile[] @relation("MemberApprovals")
+  memberDenials   MemberProfile[] @relation("MemberDenials")
   checkins        Registration[] @relation("CheckinStaff")
   auditLogs       AuditLog[]
 
@@ -107,11 +121,12 @@ model MemberProfile {
   firstName     String
   lastName      String
   phone         String?
+  zipCode       String?  // USA ZIP code (5 or 9 digits)
   addressLine1  String?
   addressLine2  String?
   city          String?
   state         String?
-  postalCode    String?
+  postalCode    String?  // International postal codes (legacy field)
   country       String?  @default("US")
   dateOfBirth   DateTime? @db.Date
   
@@ -124,15 +139,31 @@ model MemberProfile {
   nextPaymentDue        DateTime?
   membershipNotes       String?            // Special notes about membership
   
+  // Membership lifecycle
+  membershipStatus      MembershipStatus   @default(INVITED)
+  registrationRequestedAt DateTime?
+  registrationMessage   String?
+  invitedAt            DateTime?
+  activatedAt          DateTime?
+  inactivatedAt        DateTime?
+  inactivatedReason    String?
+  approvedAt           DateTime?
+  approvedById         Int?
+  deniedAt             DateTime?
+  deniedById           Int?
+  denialReason         String?
+  
   emergencyContact Json   @default("{}")  // {name, phone, relationship}
   metadata      Json     @default("{}")   // Custom fields per org
-  isActive      Boolean  @default(true)
+  isActive      Boolean  @default(true)    // Legacy field, derived from membershipStatus
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
   // Relations
   org           Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   user          UserAccount  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  approvedBy    UserAccount? @relation("MemberApprovals", fields: [approvedById], references: [id], onDelete: SetNull)
+  deniedBy      UserAccount? @relation("MemberDenials", fields: [deniedById], references: [id], onDelete: SetNull)
   family        FamilyMember[]
   registrations Registration[]
 
@@ -143,6 +174,7 @@ model MemberProfile {
   @@index([orgId, isActive], map: "member_org_active_idx")
   @@index([orgId, membershipCategory], map: "member_org_category_idx")
   @@index([orgId, nextPaymentDue], map: "member_org_payment_due_idx")
+  @@index([orgId, membershipStatus], map: "member_org_status_idx")
   @@map("member_profile")
 }
 
