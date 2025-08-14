@@ -1,14 +1,73 @@
+# Node.js
 node_modules
-npm-debug.log
-logs/*
-.env
-.git
-.gitignore
-README.md
-.nyc_output
-coverage
-.coverage
-*.md
-.DS_Store
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build outputs
+dist
+.next
+.nuxt
+
+# Environment files
+.env*
+!.env.example
+
+# IDE and editor files
 .vscode
 .idea
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Git
+.git
+.gitignore
+
+# Docker
+Dockerfile*
+.dockerignore
+docker-compose*.yml
+
+# CI/CD
+.github
+
+# Documentation
+README.md
+*.md
+docs/
+
+# Logs
+logs/
+*.log
+
+# Test files
+test/
+coverage/
+.nyc_output
+
+# Cache
+.npm
+.cache
+
+# Temporary files
+temp/
+tmp/
+
+# Kubernetes
+k8s/
+
+# Terraform
+terraform/
+
+# Development tools
+nodemon.json
